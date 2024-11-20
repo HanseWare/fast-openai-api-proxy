@@ -1,0 +1,78 @@
+{
+  "openAI": {
+    "api_key_variable": "OPENAI_API_TOKEN",
+    "prefix": "",
+    "models": {
+      "gpt-4o": {
+        "apis_supported": [
+          "v1/chat/completions"
+        ],
+        "target_base_url": "https://api.openai.com",
+        "target_model_name": "gpt-4o",
+        "request_timeout": 120
+      },
+      "gpt-4o-mini": {
+        "apis_supported": [
+          "v1/chat/completions"
+        ],
+        "target_base_url": "https://api.openai.com",
+        "target_model_name": "gpt-4o-mini",
+        "request_timeout": 120
+      },
+      "whisper-1": {
+        "apis_supported": [
+          "v1/audio/transcriptions",
+          "v1/audio/translations"
+        ],
+        "target_base_url": "https://api.openai.com",
+        "target_model_name": "whisper-1"
+      },
+      "dall-e-2": {
+        "apis_supported": [
+          "v1/images/generations",
+          "v1/images/edits",
+          "v1/images/variations"
+        ],
+        "target_base_url": "https://api.openai.com",
+        "target_model_name": "dall-e-2",
+        "request_timeout": 300
+      },
+      "dall-e-3": {
+        "apis_supported": [
+          "v1/images/generations"
+        ],
+        "target_base_url": "https://api.openai.com",
+        "target_model_name": "dall-e-3",
+        "request_timeout": 300
+      },
+      "tts-1": {
+        "apis_supported": [
+          "v1/audio/speech"
+        ],
+        "target_base_url": "https://api.openai.com",
+        "target_model_name": "tts-1"
+      },
+      "tts-1-hd": {
+        "apis_supported": [
+          "v1/audio/speech"
+        ],
+        "target_base_url": "https://api.openai.com",
+        "target_model_name": "tts-1-hd"
+      },
+      "omni-moderation-latest": {
+        "apis_supported": [
+          "v1/moderations"
+        ],
+        "target_base_url": "https://api.openai.com",
+        "target_model_name": "omni-moderation-latest"
+      },
+      "text-moderation-latest": {
+        "apis_supported": [
+          "v1/moderations"
+        ],
+        "target_base_url": "https://api.openai.com",
+        "target_model_name": "text-moderation-latest"
+      }
+    }
+  }
+}
