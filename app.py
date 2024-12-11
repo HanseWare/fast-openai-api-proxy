@@ -1,7 +1,8 @@
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime
 import os
-from typing import Dict, Optional, Any, List
+from typing import Dict, Optional, Any, List, Set
 import logging
 from pythonjsonlogger.json import JsonFormatter
 
@@ -10,7 +11,7 @@ from fastapi import FastAPI, Request, HTTPException, UploadFile, File, Form
 from fastapi.responses import StreamingResponse, JSONResponse, Response
 
 from auth import can_request
-from models_app import app as models
+from models_app import handler as models
 __name__ = "hanseware.fast-openai-api-proxy"
 
 RESERVED_ATTRS: List[str] = [
@@ -38,9 +39,10 @@ logger = logging.getLogger(__name__)
 
 class FOAP(FastAPI):
     base_url: str
+    model_handler: Any
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.mount("/v1/models", models)
+        self.model_handler = models
         self.base_url = os.getenv("BASE_URL", "http://localhost:8000")
 
 
@@ -434,23 +436,55 @@ async def hello_world():
 
 @app.get("/health/{model}")
 async def health_check(request: Request):
-    model = request.path_params.get('model')
+    model = request.path_params.get("model")
 
-    model_data = models.get_model_data(model)
-    # Retrieve model data including the target model name
-    if not model_data:
+    model_entry = models.get_model_data(model)
+    if not model_entry:
         raise HTTPException(status_code=404, detail="Model not supported for this API")
 
-    target_url = model_data['target_base_url'] + '/health'
+    endpoints = model_entry.get("endpoints", [])
 
-    health_timeout = model_data.get('health_timeout', 10)
-    # Forward the request to the target URL
+    # Collect unique target_base_url + '/health' URLs
+    health_urls: Set[str] = {
+        f"{endpoint['target_base_url']}/health" for endpoint in endpoints
+    }
+
+    health_timeout = next((endpoint.get("health_timeout", 10) for endpoint in endpoints), 10)
+
     async with httpx.AsyncClient(timeout=httpx.Timeout(health_timeout)) as client:
-        response = await client.get(target_url)
-    if response.status_code == 200:
+        results = await asyncio.gather(
+            *[client.get(url) for url in health_urls],
+            return_exceptions=True
+        )
+
+    all_healthy = True
+    for result in results:
+        if isinstance(result, Exception) or result.status_code != 200:
+            all_healthy = False
+            break
+
+    if all_healthy:
         return JSONResponse(content={"status": "ok"})
     else:
-        return JSONResponse(content={"status": "error"}, status_code=response.status_code)
+        return JSONResponse(content={"status": "error"}, status_code=503)
+
+
+# Route for model details
+@app.get("/v1/models")
+async def models_details(request: Request):
+    response_data = {
+        "object": "list",
+        "data": models.get_model_list()
+    }
+    return JSONResponse(content=response_data)
+
+
+@app.get("/v1/models/{model}")
+async def model_details(request: Request, model: str):
+    model_data = models.get_model(model)
+    if not model_data:
+        raise HTTPException(status_code=404, detail="Model not found")
+    return JSONResponse(content=model_data)
 
 
 if __name__ == "__main__":
