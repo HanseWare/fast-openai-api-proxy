@@ -11,7 +11,7 @@ COPY README.md /app
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the current directory contents into the container at /app
-COPY *.py /app/
+COPY app/*.py /app/
 
 COPY configs /app/configs
 
@@ -24,4 +24,4 @@ EXPOSE 8000
 
 # Run the application
 #CMD ["python", "/app/app.py"]
-CMD uvicorn app:app --host $FOAP_HOST --port $FOAP_PORT
+CMD uvicorn main:app --host $FOAP_HOST --port $FOAP_PORT

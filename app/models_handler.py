@@ -11,7 +11,7 @@ class ModelsHandler:
     def __init__(self):
         self.models = {}
         # Read models from config files in folder "configs"
-        config_dir = os.getenv("FOAP_CONFIG_DIR", "../configs")
+        config_dir = os.getenv("FOAP_CONFIG_DIR", "/configs")
         for filename in os.listdir(config_dir):
             if filename.endswith(".json"):
                 filepath = os.path.join(config_dir, filename)
