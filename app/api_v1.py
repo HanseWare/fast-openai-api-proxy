@@ -1,3 +1,4 @@
+import os
 from typing import Optional, List
 import logging
 
@@ -34,8 +35,10 @@ RESERVED_ATTRS: List[str] = [
 logger = logging.getLogger(__name__)
 
 class FOAP_API_V1(FastAPI):
+    base_url: str
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.base_url = os.getenv("BASE_URL", "http://localhost:8000")
 
 app = FOAP_API_V1()
 
