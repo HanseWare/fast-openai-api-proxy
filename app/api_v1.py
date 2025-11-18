@@ -12,26 +12,6 @@ from utils import handle_request, handle_file_upload, process_response, process_
 
 __name__ = "hanseware.fast-openai-api-proxy.api_v1"
 
-RESERVED_ATTRS: List[str] = [
-    "args",
-    "created",
-    "exc_info",
-    "exc_text",
-    "filename",
-    "levelno",
-    "lineno",
-    "module",
-    "msecs",
-    "message",
-    "msg",
-    "process",
-    "processName",
-    "relativeCreated",
-    "stack_info",
-    "thread",
-    "threadName",
-]
-
 logger = logging.getLogger(__name__)
 
 class FOAP_API_V1(FastAPI):
@@ -282,3 +262,29 @@ async def model_details(request: Request, model: str):
     if not model_data:
         raise HTTPException(status_code=404, detail="Model not found")
     return JSONResponse(content=model_data)
+
+# Catch all  Endpoint for any request not defined above
+@app.api_route("/{path:path}", methods=["GET", "POST"])
+async def fallback_route(path: str, request: Request):
+    full_url = str(request.url)
+    # Log the request details
+    logger.info(f"---------------------------------------------------------------------------------")
+    logger.info(f"Fallback route triggered for {request.method} {full_url}")
+    # Log the request body
+    body = await request.body()
+    logger.info(f"Request body: {body.decode('utf-8', errors='replace')}")
+    # Log the request headers
+    logger.info(f"Request headers: {dict(request.headers)}")
+    # Log the request query parameters
+    logger.info(f"Request query parameters: {dict(request.query_params)}")
+    # Log the request client IP
+    logger.info(f"Request client IP: {request.client.host if request.client else 'unknown'}")
+    # Log the request path
+    logger.info(f"Request path: {path}")
+    # Log the request method
+    logger.info(f"---------------------------------------------------------------------------------")
+    return JSONResponse(
+        status_code=404,
+        content={
+            "detail": "Nothing to see here!"},
+    )

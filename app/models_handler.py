@@ -62,7 +62,7 @@ class ModelsHandler:
             "id": model,
             "object": "model",
             "created": 1714780800,
-            "owned_by": "myLab"
+            "owned_by": "FOAP"
         }
 
     def get_model_list(self):
@@ -71,7 +71,7 @@ class ModelsHandler:
                 "id": model,
                 "object": "model",
                 "created": 1714780800,
-                "owned_by": "myLab"
+                "owned_by": "FOAP"
             } for model in self.models.keys()
         ]
 

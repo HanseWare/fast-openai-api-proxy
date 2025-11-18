@@ -4,6 +4,7 @@ import os
 from typing import Any, List, Set
 import logging
 from pythonjsonlogger.json import JsonFormatter
+from utils import RESERVED_ATTRS
 
 import httpx
 from fastapi import FastAPI, Request, HTTPException
@@ -12,26 +13,6 @@ from fastapi.responses import JSONResponse
 from models_handler import handler as models
 from api_v1 import app as api_v1_app
 __name__ = "hanseware.fast-openai-api-proxy"
-
-RESERVED_ATTRS: List[str] = [
-    "args",
-    "created",
-    "exc_info",
-    "exc_text",
-    "filename",
-    "levelno",
-    "lineno",
-    "module",
-    "msecs",
-    "message",
-    "msg",
-    "process",
-    "processName",
-    "relativeCreated",
-    "stack_info",
-    "thread",
-    "threadName",
-]
 
 logger = logging.getLogger(__name__)
 

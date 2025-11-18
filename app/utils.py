@@ -45,7 +45,7 @@ async def handle_request(request: Request, api_path: str):
     if not can_request(model, token):
         raise HTTPException(status_code=403, detail="Unauthorized")
     # log model, api path and stream with timestamp as json
-    logger.info({"provider": model_data.get('provider'), "model_requested": model_data.get('model_requested', model), "model_used":model_data.get('target_model', model), "api_path": api_path, "as_stream": stream})
+    logger.info({"provider": model_data.get('provider'), "model_requested": model_data.get('model_requested', model), "model_used":model_data.get('target_model_name', model), "api_path": api_path, "as_stream": stream})
 
     # Add the API key for external models
     token = model_data.get('api_key', token)
@@ -55,7 +55,7 @@ async def handle_request(request: Request, api_path: str):
 
     target_url = model_data['target_base_url'] + '/' + api_path
     max_response_time = model_data.get('request_timeout', 60)
-    custom_timeout = httpx.Timeout(10.0, connect=max_response_time, read=max_response_time, pool=max_response_time)
+    custom_timeout = httpx.Timeout(max_response_time, connect=max_response_time, read=max_response_time, pool=max_response_time)
 
     client = httpx.AsyncClient(timeout=custom_timeout)  # Move the client outside the context
     if stream:
