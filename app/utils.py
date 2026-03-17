@@ -151,4 +151,5 @@ def process_completion_response(response):
             final_response = JSONResponse(content=content, headers={'Content-Type': 'application/json'})
             return final_response
         else:
+            logger.error(f"Error from target API: {response.status_code} - {response.text}")
             return JSONResponse(status_code=response.status_code, content={"message": "Failed to process request"})
