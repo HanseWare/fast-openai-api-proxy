@@ -10,6 +10,24 @@
             "target_base_url": "https://api.openai.com",
             "target_model_name": "gpt-4o",
             "request_timeout": 120
+          },
+          {
+            "path": "v1/responses",
+            "target_base_url": "https://api.openai.com",
+            "target_model_name": "gpt-4o",
+            "request_timeout": 120
+          },
+          {
+            "path": "v1/responses/compact",
+            "target_base_url": "https://api.openai.com",
+            "target_model_name": "gpt-4o",
+            "request_timeout": 120
+          },
+          {
+            "path": "v1/responses/input_tokens",
+            "target_base_url": "https://api.openai.com",
+            "target_model_name": "gpt-4o",
+            "request_timeout": 120
           }
         ]
       },
@@ -17,6 +35,24 @@
         "endpoints": [
           {
             "path": "v1/chat/completions",
+            "target_base_url": "https://api.openai.com",
+            "target_model_name": "gpt-4o-mini",
+            "request_timeout": 120
+          },
+          {
+            "path": "v1/responses",
+            "target_base_url": "https://api.openai.com",
+            "target_model_name": "gpt-4o-mini",
+            "request_timeout": 120
+          },
+          {
+            "path": "v1/responses/compact",
+            "target_base_url": "https://api.openai.com",
+            "target_model_name": "gpt-4o-mini",
+            "request_timeout": 120
+          },
+          {
+            "path": "v1/responses/input_tokens",
             "target_base_url": "https://api.openai.com",
             "target_model_name": "gpt-4o-mini",
             "request_timeout": 120

@@ -9,6 +9,7 @@ from routers.fallback import router as fallback_router
 from routers.images import router as images_router
 from routers.models import router as models_router
 from routers.moderations import router as moderations_router
+from routers.responses import router as responses_router
 
 
 class FOAP_API_V1(FastAPI):
@@ -27,5 +28,6 @@ app.include_router(embeddings_router)
 app.include_router(audio_router)
 app.include_router(images_router)
 app.include_router(moderations_router)
+app.include_router(responses_router)
 app.include_router(models_router)
 app.include_router(fallback_router)

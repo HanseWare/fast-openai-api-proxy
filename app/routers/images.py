@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from auth import can_request
 from models_handler import handler as models
-from utils import handle_file_upload, handle_request
+from utils import handle_file_upload, handle_request, process_completion_response
 
 router = APIRouter()
 
@@ -41,6 +41,9 @@ async def images_generations(request: Request):
     # Handle streaming response if stream=true was requested
     if isinstance(response, StreamingResponse):
         return response
+
+    if response.status_code != 200:
+        return process_completion_response(response)
     
     if response_format == "url":
         content = _patch_image_data_urls(request, response.json(), model)
@@ -94,6 +97,9 @@ async def images_edits(
     if stream:
         return response
 
+    if response.status_code != 200:
+        return process_completion_response(response)
+
     if response_format == "url":
         content = _patch_image_data_urls(request, response.json(), model)
         return JSONResponse(content=content)
@@ -142,6 +148,9 @@ async def images_variations(
     )
     if stream:
         return response
+
+    if response.status_code != 200:
+        return process_completion_response(response)
 
     if response_format == "url":
         content = _patch_image_data_urls(request, response.json(), model)

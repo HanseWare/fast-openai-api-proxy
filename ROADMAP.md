@@ -1,11 +1,21 @@
 - [x] write initial AGENTS.md with overview of project structure, important paths, working rules for agents, and repo-specific hints
 - [ ] enhance existing endpoints to match most recent api docs, especially "transcribe", but also the others
+  - [x] add stateless passthrough coverage for core Responses API endpoints (`/responses`, `/responses/{id}`, `/responses/{id}/cancel`, `/responses/{id}/input_items`, `/responses/compact`, `/responses/input_tokens`)
+  - [x] improve transcription endpoint parameter handling/validation for recent OpenAI API behavior (`stream`, `timestamp_granularities[]`, diarize constraints, known speaker references)
+  - [x] unify error/status passthrough for embeddings/moderations/images instead of generic local fallback errors
+  - [ ] continue endpoint-by-endpoint docs parity pass for remaining routes
 - [x] split api_v1.py into multiple files if it grows too large using APIRouter and mounting them in api_v1.py, e.g. `routers/completions.py`, `routers/embeddings.py`, `routers/audio.py`, `routers/images.py`, etc.
-- [ ] add handling for Responses API
+- [x] add stateless handling for Responses API (passthrough routing)
+- [ ] add stateful handling/interception for Responses API once database extension and multi-user state are available
 - [ ] improve everything else iteratively, e.g. error handling, logging, code structure, etc.
-- [ ] add optionally deployable and configurable administration and user self service endpoints, e.g. managing user api keys, setting quotas, setting endpoints (or models) protected by api keys, etc.
+- [ ] add optionally deployable and configurable administration and multi-user self service endpoints, e.g. managing user api keys, setting quotas, setting endpoints (or models) protected by api keys, etc.
   - [ ] add database models and migrations for api keys, quotas, protected endpoints, etc.
   - [ ] add endpoints for administration and user self service, e.g. `GET /api/admin/keys`, `POST /api/admin/keys`, `DELETE /api/admin/keys/{key_id}`, `GET /api/keys`, `POST /api/keys`, `DELETE /api/keys/{key_id}`, `GET /api/admin/protected-endpoints`, `POST /api/admin/protected-endpoints`, `DELETE /api/admin/protected-endpoints/{endpoint_id}`, etc.
   - [ ] add handling for api keys, quotas, protected endpoints, etc. in the main logic of the API, e.g. via middleware
   - [ ] add configuration options to enable/disable the administration and user self service endpoints, e.g. via environment variables or config file
   - [ ] add VueJS frontend for administration and user self service, e.g. a new page under `/admin` for administration and a new page under `/account` for user self service
+- [ ] add and extend database models to enable acting as middleware for handling stateful features of Responses API and related features like Vector Stores and Conversations API
+  - [ ] add database models and endpoints handling per user vector storage inside postgreSQL utilizing pgvector
+  - [ ] add database models and migrations for conversations, messages, etc. as needed for stateful features of Responses API and Conversations API
+  - [ ] add handling for conversations, messages, etc. in the main logic of the API
+  - [ ] add endpoints for managing conversations, messages, etc. as needed for stateful features of Responses API and related features
