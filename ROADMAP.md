@@ -1,6 +1,6 @@
-- [ ] write initial AGENTS.md with overview of project structure, important paths, working rules for agents, and repo-specific hints
+- [x] write initial AGENTS.md with overview of project structure, important paths, working rules for agents, and repo-specific hints
 - [ ] enhance existing endpoints to match most recent api docs, especially "transcribe", but also the others
-- [ ] split api_v1.py into multiple files if it grows too large using APIRouter and mounting them in api_v1.py, e.g. `routers/completions.py`, `routers/embeddings.py`, `routers/audio.py`, `routers/images.py`, etc.
+- [x] split api_v1.py into multiple files if it grows too large using APIRouter and mounting them in api_v1.py, e.g. `routers/completions.py`, `routers/embeddings.py`, `routers/audio.py`, `routers/images.py`, etc.
 - [ ] add handling for Responses API
 - [ ] improve everything else iteratively, e.g. error handling, logging, code structure, etc.
 - [ ] add optionally deployable and configurable administration and user self service endpoints, e.g. managing user api keys, setting quotas, setting endpoints (or models) protected by api keys, etc.
