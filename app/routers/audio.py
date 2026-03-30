@@ -2,9 +2,9 @@ import json
 from typing import Any, Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse, Response
 
-from utils import handle_file_upload, handle_request, process_response
+from utils import handle_file_upload, handle_request, process_completion_response, process_response
 
 router = APIRouter()
 
@@ -89,15 +89,15 @@ async def audio_speech(request: Request):
     if isinstance(response, StreamingResponse):
         return response
 
-    if response.status_code == 200:
-        content_type = response.headers.get("Content-Type", "")
-        if "audio/" in content_type or "application/octet-stream" in content_type:
-            return StreamingResponse(response.iter_bytes(), media_type=content_type)
-        if "text/event-stream" in content_type:
-            return StreamingResponse(response.iter_bytes(), media_type="text/event-stream")
-        return JSONResponse(status_code=415, content={"message": "Unsupported Media Type"})
+    if response.status_code != 200:
+        return process_completion_response(response)
 
-    return JSONResponse(status_code=response.status_code, content={"message": "Failed to generate audio"})
+    content_type = response.headers.get("Content-Type", "")
+    if "audio/" in content_type or "application/octet-stream" in content_type:
+        return Response(content=response.content, media_type=content_type or "application/octet-stream")
+    if "text/event-stream" in content_type:
+        return StreamingResponse(response.iter_bytes(), media_type="text/event-stream")
+    return JSONResponse(status_code=415, content={"message": "Unsupported Media Type"})
 
 
 @router.post("/audio/transcriptions")
@@ -165,6 +165,11 @@ async def audio_translation(
     include_legacy: Optional[list[str]] = Form(None),
     stream: Optional[bool] = Form(False),
 ):
+    effective_stream = bool(stream)
+    if model == "whisper-1":
+        # Whisper translations do not support streaming mode.
+        effective_stream = False
+
     include_values = include or include_legacy
 
     data = {
@@ -173,7 +178,7 @@ async def audio_translation(
         "response_format": response_format,
         "temperature": temperature,
         "include[]": include_values,
-        "stream": stream,
+        "stream": effective_stream,
     }
 
     files_data = {"file": file}
@@ -182,9 +187,9 @@ async def audio_translation(
         "v1/audio/translations",
         files_data,
         data,
-        stream_response=bool(stream),
+        stream_response=effective_stream,
     )
-    if stream:
+    if effective_stream:
         return response
 
     return process_response(response, response_format)

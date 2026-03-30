@@ -2,7 +2,13 @@
 - [ ] enhance existing endpoints to match most recent api docs, especially "transcribe", but also the others
   - [x] add stateless passthrough coverage for core Responses API endpoints (`/responses`, `/responses/{id}`, `/responses/{id}/cancel`, `/responses/{id}/input_items`, `/responses/compact`, `/responses/input_tokens`)
   - [x] improve transcription endpoint parameter handling/validation for recent OpenAI API behavior (`stream`, `timestamp_granularities[]`, diarize constraints, known speaker references)
+  - [x] improve audio speech/translation passthrough behavior (preserve backend error payloads, normalize unsupported whisper streaming)
   - [x] unify error/status passthrough for embeddings/moderations/images instead of generic local fallback errors
+  - [x] harden bearer token extraction in shared request/upload utilities
+  - [x] align streaming response content-type handling with SSE defaults and preserve existing backend stream headers
+  - [x] harden custom image data route (`/images/data/{model}/{file_id}`) for auth parsing and backend error passthrough
+  - [x] harden core utility request/response handling (invalid JSON -> 400, upstream transport failures -> 502, safer JSON parsing)
+  - [x] harden image URL-response branches against non-JSON upstream payloads
   - [ ] continue endpoint-by-endpoint docs parity pass for remaining routes
 - [x] split api_v1.py into multiple files if it grows too large using APIRouter and mounting them in api_v1.py, e.g. `routers/completions.py`, `routers/embeddings.py`, `routers/audio.py`, `routers/images.py`, etc.
 - [x] add stateless handling for Responses API (passthrough routing)

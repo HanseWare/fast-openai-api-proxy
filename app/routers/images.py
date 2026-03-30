@@ -11,6 +11,17 @@ from utils import handle_file_upload, handle_request, process_completion_respons
 router = APIRouter()
 
 
+def _extract_bearer_token(request: Request) -> Optional[str]:
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        return None
+    parts = auth_header.split(" ", 1)
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        return None
+    token = parts[1].strip()
+    return token or None
+
+
 def _patch_image_data_urls(request: Request, content: dict, model: str) -> dict:
     data = content.get("data") or []
     if not data:
@@ -46,7 +57,10 @@ async def images_generations(request: Request):
         return process_completion_response(response)
     
     if response_format == "url":
-        content = _patch_image_data_urls(request, response.json(), model)
+        try:
+            content = _patch_image_data_urls(request, response.json(), model)
+        except Exception:
+            return process_completion_response(response)
         return JSONResponse(content=content)
 
     return response.json()
@@ -101,7 +115,10 @@ async def images_edits(
         return process_completion_response(response)
 
     if response_format == "url":
-        content = _patch_image_data_urls(request, response.json(), model)
+        try:
+            content = _patch_image_data_urls(request, response.json(), model)
+        except Exception:
+            return process_completion_response(response)
         return JSONResponse(content=content)
 
     return response.json()
@@ -153,7 +170,10 @@ async def images_variations(
         return process_completion_response(response)
 
     if response_format == "url":
-        content = _patch_image_data_urls(request, response.json(), model)
+        try:
+            content = _patch_image_data_urls(request, response.json(), model)
+        except Exception:
+            return process_completion_response(response)
         return JSONResponse(content=content)
 
     return response.json()
@@ -161,7 +181,7 @@ async def images_variations(
 
 @router.get("/images/data/{model}/{file_id}")
 async def get_image_data(request: Request, model: str, file_id: str):
-    token = request.headers.get("Authorization").split("Bearer ")[1] if "Authorization" in request.headers else None
+    token = _extract_bearer_token(request)
 
     if not can_request(model, token):
         raise HTTPException(status_code=403, detail="Unauthorized")
@@ -177,6 +197,9 @@ async def get_image_data(request: Request, model: str, file_id: str):
     custom_timeout = httpx.Timeout(10.0, connect=max_response_time, read=max_response_time, pool=max_response_time)
     async with httpx.AsyncClient(timeout=custom_timeout) as client:
         response = await client.get(target_url, headers={"Authorization": f"Bearer {token}"})
+
+    if response.status_code != 200:
+        return process_completion_response(response)
 
     return Response(
         content=response.content,

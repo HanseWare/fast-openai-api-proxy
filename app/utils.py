@@ -50,10 +50,16 @@ def _form_value_to_string(value: Any) -> str:
     return str(value)
 
 async def handle_request(request: Request, api_path: str):
-    token = request.headers.get('Authorization').split("Bearer ")[1] if 'Authorization' in request.headers else None
-    body = await request.json()
+    token = _extract_bearer_token(request)
+    try:
+        body = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid JSON body") from exc
     model = body.get('model')
     stream = body.get('stream', False) or body.get('stream_format') == 'sse'
+
+    if not model:
+        raise HTTPException(status_code=400, detail="Missing model in request body")
 
     # Retrieve model data including the target model name
     model_data = models.get_model_data(model, api_path)
@@ -84,12 +90,15 @@ async def handle_request(request: Request, api_path: str):
                     yield chunk
             await client.aclose()  # Close the client after streaming is complete
 
-        media_type = "text/event-stream" if body.get('stream_format') == 'sse' else "application/json"
+        media_type = "text/event-stream" if body.get('stream', False) or body.get('stream_format') == 'sse' else "application/json"
         return StreamingResponse(stream_generator(), media_type=media_type)
 
     else:
         # Non-streaming response
-        response = await client.post(target_url, json=body, headers={"Authorization": f"Bearer {token}"})
+        try:
+            response = await client.post(target_url, json=body, headers={"Authorization": f"Bearer {token}"})
+        except httpx.RequestError as exc:
+            raise HTTPException(status_code=502, detail=f"Upstream request failed: {exc}") from exc
         await client.aclose()  # Ensure the client is closed after request
         return response
 
@@ -171,6 +180,8 @@ async def handle_subresource_request(
             response = await client.delete(target_url, **request_kwargs)
         else:
             raise HTTPException(status_code=500, detail=f"Unsupported passthrough method: {method_upper}")
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=502, detail=f"Upstream request failed: {exc}") from exc
     finally:
         await client.aclose()
 
@@ -185,11 +196,7 @@ async def handle_file_upload(
     data: Dict[str, Optional[Any]],
     stream_response: bool = False,
 ):
-    token = request.headers.get('Authorization')
-    if token:
-        token = token.split("Bearer ")[1]
-    else:
-        token = None
+    token = _extract_bearer_token(request)
     model = data.get('model')
     if not can_request(model, token):
         raise HTTPException(status_code=403, detail="Unauthorized")
@@ -197,7 +204,7 @@ async def handle_file_upload(
     model_data = models.get_model_data(model, api_path)
     if not model_data:
         raise HTTPException(status_code=404, detail="Model not supported for this API")
-    logger.info({"provider": model_data.get('provider'), "model_requested": model_data.get('model_requested', model), "model_used":model_data.get('target_model', model), "api_path": api_path})
+    logger.info({"provider": model_data.get('provider'), "model_requested": model_data.get('model_requested', model), "model_used":model_data.get('target_model_name', model), "api_path": api_path})
     # Update model name to target model name for backend compatibility
     data['model'] = model_data['target_model_name']
 
@@ -243,12 +250,15 @@ async def handle_file_upload(
         return StreamingResponse(stream_generator(), media_type="text/event-stream")
 
     async with httpx.AsyncClient(timeout=custom_timeout) as client:
-        response = await client.post(
-            target_url,
-            data=form_fields,
-            files=files,
-            headers={"Authorization": f"Bearer {token}"},
-        )
+        try:
+            response = await client.post(
+                target_url,
+                data=form_fields,
+                files=files,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        except httpx.RequestError as exc:
+            raise HTTPException(status_code=502, detail=f"Upstream request failed: {exc}") from exc
 
     return response
 
@@ -258,8 +268,13 @@ def process_response(response, response_format):
 
     if response.status_code == 200:
         if response_format == "json":
-            return JSONResponse(content=response.json(), headers={"Content-Type": "application/json"})
-        return StreamingResponse(response.iter_bytes(), media_type=content_type or "application/octet-stream")
+            try:
+                payload = response.json()
+            except Exception:
+                payload = {"message": response.text or "Invalid JSON response from upstream"}
+                return JSONResponse(status_code=502, content=payload)
+            return JSONResponse(content=payload, headers={"Content-Type": "application/json"})
+        return Response(content=response.content, media_type=content_type or "application/octet-stream")
 
     if "application/json" in content_type:
         try:
@@ -277,15 +292,17 @@ def process_response(response, response_format):
 def process_completion_response(response):
     # If `handle_request` returned a `StreamingResponse`, pass it directly
     if isinstance(response, StreamingResponse):
-        headers = dict(response.headers)
-        headers['Content-Type'] = 'text/event-stream'  # Ensure the content type for streaming responses
-        response.headers.update(headers)
+        if not response.headers.get("Content-Type"):
+            response.headers["Content-Type"] = "text/event-stream"
         return response  # Return the streaming response directly
 
     # Keep backend payload and status codes for non-streaming responses.
     content_type = response.headers.get("Content-Type", "")
     if "application/json" in content_type:
-        payload = response.json()
+        try:
+            payload = response.json()
+        except Exception:
+            payload = {"message": response.text or "Invalid JSON response from upstream"}
         return JSONResponse(status_code=response.status_code, content=payload, headers={"Content-Type": "application/json"})
 
     return Response(
