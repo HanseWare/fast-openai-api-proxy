@@ -1,0 +1,11 @@
+- [ ] write initial AGENTS.md with overview of project structure, important paths, working rules for agents, and repo-specific hints
+- [ ] enhance existing endpoints to match most recent api docs, especially "transcribe", but also the others
+- [ ] split api_v1.py into multiple files if it grows too large using APIRouter and mounting them in api_v1.py, e.g. `routers/completions.py`, `routers/embeddings.py`, `routers/audio.py`, `routers/images.py`, etc.
+- [ ] add handling for Responses API
+- [ ] improve everything else iteratively, e.g. error handling, logging, code structure, etc.
+- [ ] add optionally deployable and configurable administration and user self service endpoints, e.g. managing user api keys, setting quotas, setting endpoints (or models) protected by api keys, etc.
+  - [ ] add database models and migrations for api keys, quotas, protected endpoints, etc.
+  - [ ] add endpoints for administration and user self service, e.g. `GET /api/admin/keys`, `POST /api/admin/keys`, `DELETE /api/admin/keys/{key_id}`, `GET /api/keys`, `POST /api/keys`, `DELETE /api/keys/{key_id}`, `GET /api/admin/protected-endpoints`, `POST /api/admin/protected-endpoints`, `DELETE /api/admin/protected-endpoints/{endpoint_id}`, etc.
+  - [ ] add handling for api keys, quotas, protected endpoints, etc. in the main logic of the API, e.g. via middleware
+  - [ ] add configuration options to enable/disable the administration and user self service endpoints, e.g. via environment variables or config file
+  - [ ] add VueJS frontend for administration and user self service, e.g. a new page under `/admin` for administration and a new page under `/account` for user self service
