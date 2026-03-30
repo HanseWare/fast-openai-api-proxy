@@ -37,6 +37,33 @@
           }
         ]
       },
+      "gpt-4o-transcribe": {
+        "endpoints": [
+          {
+            "path": "v1/audio/transcriptions",
+            "target_base_url": "https://api.openai.com",
+            "target_model_name": "gpt-4o-transcribe"
+          }
+        ]
+      },
+      "gpt-4o-mini-transcribe": {
+        "endpoints": [
+          {
+            "path": "v1/audio/transcriptions",
+            "target_base_url": "https://api.openai.com",
+            "target_model_name": "gpt-4o-mini-transcribe"
+          }
+        ]
+      },
+      "gpt-4o-transcribe-diarize": {
+        "endpoints": [
+          {
+            "path": "v1/audio/transcriptions",
+            "target_base_url": "https://api.openai.com",
+            "target_model_name": "gpt-4o-transcribe-diarize"
+          }
+        ]
+      },
       "dall-e-2": {
         "endpoints": [
           {
@@ -84,6 +111,15 @@
             "path": "v1/audio/speech",
             "target_base_url": "https://api.openai.com",
             "target_model_name": "tts-1-hd"
+          }
+        ]
+      },
+      "gpt-4o-mini-tts": {
+        "endpoints": [
+          {
+            "path": "v1/audio/speech",
+            "target_base_url": "https://api.openai.com",
+            "target_model_name": "gpt-4o-mini-tts"
           }
         ]
       },

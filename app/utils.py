@@ -36,7 +36,7 @@ async def handle_request(request: Request, api_path: str):
     token = request.headers.get('Authorization').split("Bearer ")[1] if 'Authorization' in request.headers else None
     body = await request.json()
     model = body.get('model')
-    stream = body.get('stream', False)
+    stream = body.get('stream', False) or body.get('stream_format') == 'sse'
 
     # Retrieve model data including the target model name
     model_data = models.get_model_data(model, api_path)
@@ -67,7 +67,8 @@ async def handle_request(request: Request, api_path: str):
                     yield chunk
             await client.aclose()  # Close the client after streaming is complete
 
-        return StreamingResponse(stream_generator(), media_type="application/json")
+        media_type = "text/event-stream" if body.get('stream_format') == 'sse' else "application/json"
+        return StreamingResponse(stream_generator(), media_type=media_type)
 
     else:
         # Non-streaming response
@@ -81,7 +82,8 @@ async def handle_file_upload(
     request: Request,
     api_path: str,
     files_data: Dict[str, Optional[UploadFile]],
-    data: Dict[str, Optional[Any]]
+    data: Dict[str, Optional[Any]],
+    stream_response: bool = False,
 ):
     token = request.headers.get('Authorization')
     if token:
@@ -106,21 +108,46 @@ async def handle_file_upload(
             file_content = await upload_file.read()
             files[field_name] = (upload_file.filename, file_content, upload_file.content_type)
 
-    # Prepare form fields as non-file data
-    form_fields = {key: str(value) for key, value in data.items() if value is not None}
+    # Preserve repeated form fields for keys like include[] / timestamp_granularities[].
+    form_fields = []
+    for key, value in data.items():
+        if value is None:
+            continue
+        if isinstance(value, list):
+            for item in value:
+                if item is not None:
+                    form_fields.append((key, str(item)))
+        else:
+            form_fields.append((key, str(value)))
 
     target_url = f"{model_data['target_base_url']}/{api_path}"
     token = model_data.get('api_key', token)
     max_response_time = model_data.get('request_timeout', 60)
     custom_timeout = httpx.Timeout(10.0, connect=max_response_time, read=max_response_time, pool=max_response_time)
 
+    if stream_response:
+        client = httpx.AsyncClient(timeout=custom_timeout)
+
+        async def stream_generator():
+            async with client.stream(
+                "POST",
+                target_url,
+                data=form_fields,
+                files=files,
+                headers={"Authorization": f"Bearer {token}"},
+            ) as response:
+                async for chunk in response.aiter_bytes():
+                    yield chunk
+            await client.aclose()
+
+        return StreamingResponse(stream_generator(), media_type="text/event-stream")
+
     async with httpx.AsyncClient(timeout=custom_timeout) as client:
-        # Send the request with form data and files
         response = await client.post(
             target_url,
             data=form_fields,
             files=files,
-            headers={"Authorization": f"Bearer {token}"}
+            headers={"Authorization": f"Bearer {token}"},
         )
 
     return response
