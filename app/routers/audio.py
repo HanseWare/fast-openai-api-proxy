@@ -84,14 +84,31 @@ async def audio_translation(
     response_format: Optional[str] = Form("json"),
     temperature: Optional[float] = Form(0),
 ):
+    include: Optional[list[str]] = Form(None, alias="include[]"),
+    include_legacy: Optional[list[str]] = Form(None),
+    stream: Optional[bool] = Form(False),
+
+    include_values = include or include_legacy
+
     data = {
         "model": model,
         "prompt": prompt,
         "response_format": response_format,
         "temperature": temperature,
+        "include[]": include_values,
+        "stream": stream,
     }
 
     files_data = {"file": file}
-    response = await handle_file_upload(request, "v1/audio/translations", files_data, data)
+    response = await handle_file_upload(
+        request,
+        "v1/audio/translations",
+        files_data,
+        data,
+        stream_response=bool(stream),
+    )
+    if stream:
+        return response
+
     return process_response(response, response_format)
 

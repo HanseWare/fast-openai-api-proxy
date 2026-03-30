@@ -96,6 +96,28 @@
           }
         ]
       },
+      "gpt-4o-mini-turbo": {
+        "endpoints": [
+          {
+            "path": "v1/images/generations",
+            "target_base_url": "https://api.openai.com",
+            "target_model_name": "gpt-4o-mini-turbo",
+            "request_timeout": 300
+          },
+          {
+            "path": "v1/images/edits",
+            "target_base_url": "https://api.openai.com",
+            "target_model_name": "gpt-4o-mini-turbo",
+            "request_timeout": 300
+          },
+          {
+            "path": "v1/images/variations",
+            "target_base_url": "https://api.openai.com",
+            "target_model_name": "gpt-4o-mini-turbo",
+            "request_timeout": 300
+          }
+        ]
+      },
       "tts-1": {
         "endpoints": [
           {

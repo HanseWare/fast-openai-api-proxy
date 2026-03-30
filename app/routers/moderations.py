@@ -8,5 +8,9 @@ router = APIRouter()
 @router.post("/moderations")
 async def moderations(request: Request):
     response = await handle_request(request, "v1/moderations")
-    return response.json()
+    
+    if response.status_code == 200:
+        return response.json()
+    
+    return {"error": "Moderation request failed", "status_code": response.status_code}
 

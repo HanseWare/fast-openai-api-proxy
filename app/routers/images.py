@@ -2,7 +2,7 @@ from typing import Optional
 
 import httpx
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from auth import can_request
 from models_handler import handler as models
@@ -37,6 +37,11 @@ async def images_generations(request: Request):
     model = req_body.get("model")
 
     response = await handle_request(request, "v1/images/generations")
+    
+    # Handle streaming response if stream=true was requested
+    if isinstance(response, StreamingResponse):
+        return response
+    
     if response_format == "url":
         content = _patch_image_data_urls(request, response.json(), model)
         return JSONResponse(content=content)
@@ -55,8 +60,12 @@ async def images_edits(
     model: str = Form(...),
     size: Optional[str] = Form("1024x1024"),
     user: Optional[str] = Form(None),
-    guidance_scale: Optional[float] = Form(None),
-    num_inference_steps: Optional[int] = Form(None),
+    quality: Optional[str] = Form(None),
+    background: Optional[str] = Form(None),
+    moderation: Optional[str] = Form(None),
+    compression: Optional[int] = Form(None),
+    stream: Optional[bool] = Form(False),
+    partial_images: Optional[int] = Form(None),
 ):
     data = {
         "prompt": prompt,
@@ -65,13 +74,26 @@ async def images_edits(
         "response_format": response_format,
         "size": size,
         "user": user,
-        "guidance_scale": guidance_scale,
-        "num_inference_steps": num_inference_steps,
+        "quality": quality,
+        "background": background,
+        "moderation": moderation,
+        "compression": compression,
+        "stream": stream,
+        "partial_images": partial_images,
     }
 
     files_data = {"image": image, "mask": mask}
 
-    response = await handle_file_upload(request, "v1/images/edits", files_data, data)
+    response = await handle_file_upload(
+        request,
+        "v1/images/edits",
+        files_data,
+        data,
+        stream_response=bool(stream),
+    )
+    if stream:
+        return response
+
     if response_format == "url":
         content = _patch_image_data_urls(request, response.json(), model)
         return JSONResponse(content=content)
@@ -88,8 +110,12 @@ async def images_variations(
     model: str = Form(...),
     size: Optional[str] = Form("1024x1024"),
     user: Optional[str] = Form(None),
-    guidance_scale: Optional[float] = Form(None),
-    num_inference_steps: Optional[int] = Form(None),
+    quality: Optional[str] = Form(None),
+    background: Optional[str] = Form(None),
+    moderation: Optional[str] = Form(None),
+    compression: Optional[int] = Form(None),
+    stream: Optional[bool] = Form(False),
+    partial_images: Optional[int] = Form(None),
 ):
     data = {
         "model": model,
@@ -97,13 +123,26 @@ async def images_variations(
         "response_format": response_format,
         "size": size,
         "user": user,
-        "guidance_scale": guidance_scale,
-        "num_inference_steps": num_inference_steps,
+        "quality": quality,
+        "background": background,
+        "moderation": moderation,
+        "compression": compression,
+        "stream": stream,
+        "partial_images": partial_images,
     }
 
     files_data = {"image": image}
 
-    response = await handle_file_upload(request, "v1/images/variations", files_data, data)
+    response = await handle_file_upload(
+        request,
+        "v1/images/variations",
+        files_data,
+        data,
+        stream_response=bool(stream),
+    )
+    if stream:
+        return response
+
     if response_format == "url":
         content = _patch_image_data_urls(request, response.json(), model)
         return JSONResponse(content=content)
