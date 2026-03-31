@@ -10,6 +10,24 @@
             "target_base_url": "https://api.openai.com",
             "target_model_name": "gpt-4o",
             "request_timeout": 120
+          },
+          {
+            "path": "v1/responses",
+            "target_base_url": "https://api.openai.com",
+            "target_model_name": "gpt-4o",
+            "request_timeout": 120
+          },
+          {
+            "path": "v1/responses/compact",
+            "target_base_url": "https://api.openai.com",
+            "target_model_name": "gpt-4o",
+            "request_timeout": 120
+          },
+          {
+            "path": "v1/responses/input_tokens",
+            "target_base_url": "https://api.openai.com",
+            "target_model_name": "gpt-4o",
+            "request_timeout": 120
           }
         ]
       },
@@ -17,6 +35,24 @@
         "endpoints": [
           {
             "path": "v1/chat/completions",
+            "target_base_url": "https://api.openai.com",
+            "target_model_name": "gpt-4o-mini",
+            "request_timeout": 120
+          },
+          {
+            "path": "v1/responses",
+            "target_base_url": "https://api.openai.com",
+            "target_model_name": "gpt-4o-mini",
+            "request_timeout": 120
+          },
+          {
+            "path": "v1/responses/compact",
+            "target_base_url": "https://api.openai.com",
+            "target_model_name": "gpt-4o-mini",
+            "request_timeout": 120
+          },
+          {
+            "path": "v1/responses/input_tokens",
             "target_base_url": "https://api.openai.com",
             "target_model_name": "gpt-4o-mini",
             "request_timeout": 120
@@ -34,6 +70,33 @@
             "path": "v1/audio/translations",
             "target_base_url": "https://api.openai.com",
             "target_model_name": "whisper-1"
+          }
+        ]
+      },
+      "gpt-4o-transcribe": {
+        "endpoints": [
+          {
+            "path": "v1/audio/transcriptions",
+            "target_base_url": "https://api.openai.com",
+            "target_model_name": "gpt-4o-transcribe"
+          }
+        ]
+      },
+      "gpt-4o-mini-transcribe": {
+        "endpoints": [
+          {
+            "path": "v1/audio/transcriptions",
+            "target_base_url": "https://api.openai.com",
+            "target_model_name": "gpt-4o-mini-transcribe"
+          }
+        ]
+      },
+      "gpt-4o-transcribe-diarize": {
+        "endpoints": [
+          {
+            "path": "v1/audio/transcriptions",
+            "target_base_url": "https://api.openai.com",
+            "target_model_name": "gpt-4o-transcribe-diarize"
           }
         ]
       },
@@ -69,6 +132,28 @@
           }
         ]
       },
+      "gpt-4o-mini-turbo": {
+        "endpoints": [
+          {
+            "path": "v1/images/generations",
+            "target_base_url": "https://api.openai.com",
+            "target_model_name": "gpt-4o-mini-turbo",
+            "request_timeout": 300
+          },
+          {
+            "path": "v1/images/edits",
+            "target_base_url": "https://api.openai.com",
+            "target_model_name": "gpt-4o-mini-turbo",
+            "request_timeout": 300
+          },
+          {
+            "path": "v1/images/variations",
+            "target_base_url": "https://api.openai.com",
+            "target_model_name": "gpt-4o-mini-turbo",
+            "request_timeout": 300
+          }
+        ]
+      },
       "tts-1": {
         "endpoints": [
           {
@@ -84,6 +169,15 @@
             "path": "v1/audio/speech",
             "target_base_url": "https://api.openai.com",
             "target_model_name": "tts-1-hd"
+          }
+        ]
+      },
+      "gpt-4o-mini-tts": {
+        "endpoints": [
+          {
+            "path": "v1/audio/speech",
+            "target_base_url": "https://api.openai.com",
+            "target_model_name": "gpt-4o-mini-tts"
           }
         ]
       },
