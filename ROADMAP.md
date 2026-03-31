@@ -9,16 +9,19 @@
   - [x] harden custom image data route (`/images/data/{model}/{file_id}`) for auth parsing and backend error passthrough
   - [x] harden core utility request/response handling (invalid JSON -> 400, upstream transport failures -> 502, safer JSON parsing)
   - [x] harden image URL-response branches against non-JSON upstream payloads
+  - [x] revisit completions endpoints for docs parity metadata and stream/error passthrough correctness
   - [ ] continue endpoint-by-endpoint docs parity pass for remaining routes
 - [x] split api_v1.py into multiple files if it grows too large using APIRouter and mounting them in api_v1.py, e.g. `routers/completions.py`, `routers/embeddings.py`, `routers/audio.py`, `routers/images.py`, etc.
 - [x] add stateless handling for Responses API (passthrough routing)
 - [ ] add stateful handling/interception for Responses API once database extension and multi-user state are available
 - [ ] improve everything else iteratively, e.g. error handling, logging, code structure, etc.
 - [ ] add optionally deployable and configurable administration and multi-user self service endpoints, e.g. managing user api keys, setting quotas, setting endpoints (or models) protected by api keys, etc.
-  - [ ] add database models and migrations for api keys, quotas, protected endpoints, etc.
-  - [ ] add endpoints for administration and user self service, e.g. `GET /api/admin/keys`, `POST /api/admin/keys`, `DELETE /api/admin/keys/{key_id}`, `GET /api/keys`, `POST /api/keys`, `DELETE /api/keys/{key_id}`, `GET /api/admin/protected-endpoints`, `POST /api/admin/protected-endpoints`, `DELETE /api/admin/protected-endpoints/{endpoint_id}`, etc.
-  - [ ] add handling for api keys, quotas, protected endpoints, etc. in the main logic of the API, e.g. via middleware
-  - [ ] add configuration options to enable/disable the administration and user self service endpoints, e.g. via environment variables or config file
+  - [x] add feature flags for optional deployment of admin and self-service API surfaces (`FOAP_ENABLE_ADMIN_API`, `FOAP_ENABLE_SELF_SERVICE_API`)
+  - [x] add initial route skeletons for `/api/admin/*` and `/api/keys` with auth guards and explicit not-implemented responses
+  - [x] add database-backed storage foundation (SQLite) for api keys, quotas, protected endpoints
+  - [x] add endpoints for administration and user self service, e.g. `GET /api/admin/keys`, `POST /api/admin/keys`, `DELETE /api/admin/keys/{key_id}`, `GET /api/keys`, `POST /api/keys`, `DELETE /api/keys/{key_id}`, `GET /api/admin/protected-endpoints`, `POST /api/admin/protected-endpoints`, `DELETE /api/admin/protected-endpoints/{endpoint_id}`, etc.
+  - [x] add handling for api keys, quotas, protected endpoints, etc. in the main logic of the API via optional middleware
+  - [x] add configuration options to enable/disable the administration and user self service endpoints, e.g. via environment variables or config file
   - [ ] add VueJS frontend for administration and user self service, e.g. a new page under `/admin` for administration and a new page under `/account` for user self service
 - [ ] add and extend database models to enable acting as middleware for handling stateful features of Responses API and related features like Vector Stores and Conversations API
   - [ ] add database models and endpoints handling per user vector storage inside postgreSQL utilizing pgvector

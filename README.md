@@ -106,7 +106,27 @@ The application can be configured using the following environment variables:
 *   `BASE_URL`: (Optional) The base URL of the proxy itself. This is used for constructing certain URLs in responses (e.g., for image data). Defaults to `http://localhost:8000`.
 *   `FOAP_HOST`: (Optional) Host address for Uvicorn to bind to. Defaults to `0.0.0.0`.
 *   `FOAP_PORT`: (Optional) Port for Uvicorn to bind to. Defaults to `8000`.
+*   `FOAP_ENABLE_ADMIN_API`: (Optional) Enable admin endpoints under `/api/admin` (`true`/`false`, default `false`).
+*   `FOAP_ENABLE_SELF_SERVICE_API`: (Optional) Enable self-service endpoints under `/api` (`true`/`false`, default `false`).
+*   `FOAP_ENABLE_ACCESS_CONTROL`: (Optional) Enable API-key based request authorization (`true`/`false`, default `false`).
+*   `FOAP_ADMIN_TOKEN`: (Required when `FOAP_ENABLE_ADMIN_API=true`) Bearer token for admin API access.
+*   `FOAP_ACCESS_DB_PATH`: (Optional) SQLite path for access-control state (keys, quotas, protected endpoints). Default: `data/access.db`.
 *   **Provider API Keys:** Environment variables containing API keys for each configured provider. The names of these variables are defined in your model configuration files (e.g., `OPENAI_API_TOKEN`).
+
+#### Optional Admin and Self-Service APIs
+
+When enabled, the proxy exposes management endpoints:
+
+*   **Admin (`/api/admin`)**
+    *   `GET /api/admin/health`
+    *   `GET|POST|DELETE /api/admin/keys...`
+    *   `PUT|GET /api/admin/keys/{key_id}/quota`
+    *   `GET|POST|DELETE /api/admin/protected-endpoints...`
+*   **Self-service (`/api`)**
+    *   `GET /api/health`
+    *   `GET|POST|DELETE /api/keys...`
+
+Protected endpoints are enforced by middleware only when `FOAP_ENABLE_ACCESS_CONTROL=true` and matching rules are configured.
 
 #### Model Configuration Files
 

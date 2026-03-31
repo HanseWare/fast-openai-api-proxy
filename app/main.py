@@ -11,6 +11,10 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 
 from models_handler import handler as models
+from config import is_access_control_enabled, is_admin_api_enabled, is_self_service_api_enabled
+from middleware.access_control import AccessControlMiddleware
+from routers.admin import router as admin_router
+from routers.self_service import router as self_service_router
 from api_v1 import app as api_v1_app
 __name__ = "hanseware.fast-openai-api-proxy"
 
@@ -47,6 +51,10 @@ async def lifespan(app: FastAPI):
 
 
 app = FOAP(lifespan=lifespan)
+
+if is_access_control_enabled():
+    logger.info("Enabling access control middleware")
+    app.add_middleware(AccessControlMiddleware)
 
 
 
@@ -96,6 +104,14 @@ async def health_check(request: Request):
         return JSONResponse(content={"status": "error"}, status_code=503)
 
 app.mount("/v1", app=api_v1_app)
+
+if is_admin_api_enabled():
+    logger.info("Enabling admin API routes under /api/admin")
+    app.include_router(admin_router)
+
+if is_self_service_api_enabled():
+    logger.info("Enabling self-service API routes under /api")
+    app.include_router(self_service_router)
 
 
 

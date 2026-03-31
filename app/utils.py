@@ -5,6 +5,7 @@ from typing import Dict, Optional, Any, List
 import httpx
 from fastapi import Request, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse, JSONResponse, Response
+from starlette.background import BackgroundTask
 
 from auth import can_request
 from models_handler import handler as models
@@ -32,6 +33,27 @@ RESERVED_ATTRS: List[str] = [
 ]
 
 logger = logging.getLogger(__name__)
+
+HOP_BY_HOP_HEADERS = {
+    "connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailers",
+    "transfer-encoding",
+    "upgrade",
+    "content-length",
+}
+
+
+def _proxy_response_headers(headers: httpx.Headers) -> Dict[str, str]:
+    return {key: value for key, value in headers.items() if key.lower() not in HOP_BY_HOP_HEADERS}
+
+
+async def _close_stream_resources(response: httpx.Response, client: httpx.AsyncClient) -> None:
+    await response.aclose()
+    await client.aclose()
 
 
 def _extract_bearer_token(request: Request) -> Optional[str]:
@@ -80,18 +102,39 @@ async def handle_request(request: Request, api_path: str):
     max_response_time = model_data.get('request_timeout', 60)
     custom_timeout = httpx.Timeout(max_response_time, connect=max_response_time, read=max_response_time, pool=max_response_time)
 
-    client = httpx.AsyncClient(timeout=custom_timeout)  # Move the client outside the context
+    client = httpx.AsyncClient(timeout=custom_timeout)
     if stream:
-        # Streaming response setup
-        async def stream_generator():
-            async with client.stream("POST", target_url, json=body,
-                                     headers={"Authorization": f"Bearer {token}"}) as response:
-                async for chunk in response.aiter_bytes():
-                    yield chunk
-            await client.aclose()  # Close the client after streaming is complete
+        try:
+            upstream_request = client.build_request(
+                "POST",
+                target_url,
+                json=body,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            upstream_response = await client.send(upstream_request, stream=True)
+        except httpx.RequestError as exc:
+            await client.aclose()
+            raise HTTPException(status_code=502, detail=f"Upstream request failed: {exc}") from exc
 
-        media_type = "text/event-stream" if body.get('stream', False) or body.get('stream_format') == 'sse' else "application/json"
-        return StreamingResponse(stream_generator(), media_type=media_type)
+        # For stream requests with upstream errors, return the materialized response payload.
+        if upstream_response.status_code >= 400:
+            await upstream_response.aread()
+            await upstream_response.aclose()
+            await client.aclose()
+            return upstream_response
+
+        stream_content_type = upstream_response.headers.get("Content-Type")
+        media_type = stream_content_type or "text/event-stream"
+        stream_headers = _proxy_response_headers(upstream_response.headers)
+        stream_headers.pop("content-type", None)
+
+        return StreamingResponse(
+            upstream_response.aiter_bytes(),
+            status_code=upstream_response.status_code,
+            media_type=media_type,
+            headers=stream_headers,
+            background=BackgroundTask(_close_stream_resources, upstream_response, client),
+        )
 
     else:
         # Non-streaming response
@@ -154,19 +197,35 @@ async def handle_subresource_request(
     client = httpx.AsyncClient(timeout=custom_timeout)
 
     if stream:
-        async def stream_generator():
-            async with client.stream(
-                method_upper,
-                target_url,
-                json=body,
-                headers={"Authorization": f"Bearer {token}"},
-            ) as response:
-                async for chunk in response.aiter_bytes():
-                    yield chunk
-            await client.aclose()
+        request_kwargs: Dict[str, Any] = {"headers": {"Authorization": f"Bearer {token}"}}
+        if method_upper != "GET" and body:
+            request_kwargs["json"] = body
 
-        media_type = "text/event-stream" if body.get("stream") or body.get("stream_format") == "sse" else "application/json"
-        return StreamingResponse(stream_generator(), media_type=media_type)
+        try:
+            upstream_request = client.build_request(method_upper, target_url, **request_kwargs)
+            upstream_response = await client.send(upstream_request, stream=True)
+        except httpx.RequestError as exc:
+            await client.aclose()
+            raise HTTPException(status_code=502, detail=f"Upstream request failed: {exc}") from exc
+
+        if upstream_response.status_code >= 400:
+            await upstream_response.aread()
+            await upstream_response.aclose()
+            await client.aclose()
+            return upstream_response
+
+        stream_content_type = upstream_response.headers.get("Content-Type")
+        media_type = stream_content_type or "text/event-stream"
+        stream_headers = _proxy_response_headers(upstream_response.headers)
+        stream_headers.pop("content-type", None)
+
+        return StreamingResponse(
+            upstream_response.aiter_bytes(),
+            status_code=upstream_response.status_code,
+            media_type=media_type,
+            headers=stream_headers,
+            background=BackgroundTask(_close_stream_resources, upstream_response, client),
+        )
 
     try:
         if method_upper == "GET":
