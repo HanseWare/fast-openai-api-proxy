@@ -5,7 +5,8 @@ from fastapi import APIRouter, Depends, Header, HTTPException, status
 
 from access_store import store
 from auth import extract_bearer_token
-from config import get_admin_token
+from config import get_admin_token, is_oidc_auth_enabled
+from oidc_auth import get_oidc_claims, has_admin_access
 from schemas.access import (
     AdminApiKeyCreate,
     ApiKeyCreateResponse,
@@ -21,15 +22,23 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 def require_admin(authorization: Optional[str] = Header(default=None)) -> None:
     expected_token = get_admin_token()
-    if not expected_token:
+    provided_token = extract_bearer_token(authorization)
+
+    if expected_token and provided_token == expected_token:
+        return
+
+    if is_oidc_auth_enabled() and provided_token:
+        claims = get_oidc_claims(provided_token)
+        if claims is not None and has_admin_access(claims):
+            return
+
+    if not expected_token and not is_oidc_auth_enabled():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Admin API is enabled but FOAP_ADMIN_TOKEN is not configured.",
+            detail="Admin API requires FOAP_ADMIN_TOKEN or OIDC configuration.",
         )
 
-    provided_token = extract_bearer_token(authorization)
-    if provided_token != expected_token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
 
 
 @router.get("/health", summary="Admin API health")

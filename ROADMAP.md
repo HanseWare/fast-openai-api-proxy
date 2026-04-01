@@ -22,9 +22,42 @@
   - [x] add endpoints for administration and user self service, e.g. `GET /api/admin/keys`, `POST /api/admin/keys`, `DELETE /api/admin/keys/{key_id}`, `GET /api/keys`, `POST /api/keys`, `DELETE /api/keys/{key_id}`, `GET /api/admin/protected-endpoints`, `POST /api/admin/protected-endpoints`, `DELETE /api/admin/protected-endpoints/{endpoint_id}`, etc.
   - [x] add handling for api keys, quotas, protected endpoints, etc. in the main logic of the API via optional middleware
   - [x] add configuration options to enable/disable the administration and user self service endpoints, e.g. via environment variables or config file
+  - [x] add optional OIDC authentication with role/group-claim based role mapping for admin and self-service access control
+  - [ ] harden OIDC operations and rollout
+    - [ ] add strict startup/runtime validation for OIDC configuration combinations (issuer/jwks/audience/claims) with explicit error messages
+    - [ ] add configurable `OIDC-only` mode for admin and/or self-service APIs (disable static `FOAP_ADMIN_TOKEN` fallback if desired)
+  - [ ] add model- and endpoint-scoped quota management as first-class admin feature
+    - [ ] add quota policy model for `api_path + model` with configurable window types (e.g. minute/hour/day)
+    - [ ] add per-policy mode switch: quota per user (OIDC subject) vs. no quota enforcement
+    - [ ] add per-user quota overrides/exceptions (higher/lower limits, temporary exemption windows)
+    - [ ] add admin endpoints + UI flows to manage quota policies and user overrides
+    - [ ] add middleware enforcement path resolving effective limit in order: user override -> model/endpoint policy -> global default
   - [ ] add VueJS frontend for administration and user self service, e.g. a new page under `/admin` for administration and a new page under `/account` for user self service
+- [ ] migrate provider/model routing configuration from JSON files to database + admin UI
+  - [ ] define DB schema for providers, models, endpoint mappings, credentials references, and timeout settings
+  - [ ] add admin CRUD endpoints and UI screens for provider/model/endpoint configuration
+  - [ ] keep JSON as import bootstrap path (one-time or repeatable) via admin UI upload workflow
+  - [ ] add import validation + diff preview before applying JSON changes to DB
+  - [ ] introduce staged cutover: runtime reads DB first, optional JSON fallback for migration period, then disable fallback by config
 - [ ] add and extend database models to enable acting as middleware for handling stateful features of Responses API and related features like Vector Stores and Conversations API
   - [ ] add database models and endpoints handling per user vector storage inside postgreSQL utilizing pgvector
   - [ ] add database models and migrations for conversations, messages, etc. as needed for stateful features of Responses API and Conversations API
   - [ ] add handling for conversations, messages, etc. in the main logic of the API
   - [ ] add endpoints for managing conversations, messages, etc. as needed for stateful features of Responses API and related features
+
+- [ ] execution plan (milestones) for targeted rollout
+  - [ ] M1: secure auth baseline + operable admin controls
+    - [ ] enforce strict OIDC startup/runtime validation and fail-fast diagnostics
+    - [ ] add configurable OIDC-only mode for admin and self-service APIs
+    - [ ] finalize admin/self-service auth behavior matrix and document migration paths
+    - [ ] provide admin UI/API visibility for current auth mode and active claim mappings
+  - [ ] M2: quota policy engine (model + endpoint + user overrides)
+    - [ ] implement DB schema and APIs for quota policies scoped by `api_path + model`
+    - [ ] support multiple time windows (minute/hour/day) and optional per-user quota mode
+    - [ ] implement per-user overrides/exceptions and effective-policy resolution logic
+    - [ ] enforce policy in middleware and expose decision tracing for debugging
+  - [ ] M3: config system migration from JSON to DB/UI
+    - [ ] implement provider/model/endpoint CRUD in DB + admin UI
+    - [ ] add JSON import workflow with schema validation and diff preview
+    - [ ] introduce staged runtime cutover: DB-first with temporary JSON fallback
+    - [ ] complete fallback removal path with explicit configuration switch

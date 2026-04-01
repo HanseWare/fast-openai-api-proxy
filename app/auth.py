@@ -2,7 +2,8 @@ import hashlib
 from typing import Optional
 
 from access_store import store
-from config import is_access_control_enabled
+from config import is_access_control_enabled, is_oidc_auth_enabled
+from oidc_auth import get_oidc_claims, get_owner_id_from_claims, has_self_service_access
 
 
 def extract_bearer_token(authorization: Optional[str]) -> Optional[str]:
@@ -26,10 +27,26 @@ def get_api_key_context(token: Optional[str]) -> Optional[dict]:
     return store.verify_api_key(token)
 
 
+def get_oidc_owner_id(token: Optional[str]) -> Optional[str]:
+    if not token or not is_oidc_auth_enabled():
+        return None
+    claims = get_oidc_claims(token)
+    if claims is None or not has_self_service_access(claims):
+        return None
+    return get_owner_id_from_claims(claims)
+
+
 def can_request(model, token):
     # Keep current behavior by default; strict checks activate behind feature flag.
     if not is_access_control_enabled():
         return True
 
-    return get_api_key_context(token) is not None
+    if get_api_key_context(token) is not None:
+        return True
+
+    if is_oidc_auth_enabled():
+        claims = get_oidc_claims(token)
+        return claims is not None and has_self_service_access(claims)
+
+    return False
 

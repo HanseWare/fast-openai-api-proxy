@@ -109,8 +109,17 @@ The application can be configured using the following environment variables:
 *   `FOAP_ENABLE_ADMIN_API`: (Optional) Enable admin endpoints under `/api/admin` (`true`/`false`, default `false`).
 *   `FOAP_ENABLE_SELF_SERVICE_API`: (Optional) Enable self-service endpoints under `/api` (`true`/`false`, default `false`).
 *   `FOAP_ENABLE_ACCESS_CONTROL`: (Optional) Enable API-key based request authorization (`true`/`false`, default `false`).
+*   `FOAP_ENABLE_OIDC_AUTH`: (Optional) Enable OIDC bearer token authentication (`true`/`false`, default `false`).
 *   `FOAP_ADMIN_TOKEN`: (Required when `FOAP_ENABLE_ADMIN_API=true`) Bearer token for admin API access.
 *   `FOAP_ACCESS_DB_PATH`: (Optional) SQLite path for access-control state (keys, quotas, protected endpoints). Default: `data/access.db`.
+*   `FOAP_OIDC_ISSUER_URL`: (Required for OIDC) Issuer URL used for token validation and discovery.
+*   `FOAP_OIDC_JWKS_URL`: (Optional) Direct JWKS URL. If omitted, it is discovered via issuer metadata.
+*   `FOAP_OIDC_AUDIENCE`: (Optional) Expected audience (`aud`) claim.
+*   `FOAP_OIDC_SUBJECT_CLAIM`: (Optional) Claim used as user identity for self-service key ownership. Default: `sub`.
+*   `FOAP_OIDC_ROLE_CLAIM`: (Optional) Claim name for role values. Default: `roles`.
+*   `FOAP_OIDC_GROUP_CLAIM`: (Optional) Claim name for group values. Default: `groups`.
+*   `FOAP_OIDC_ADMIN_VALUES`: (Optional) Comma-separated role/group values granting admin access. Default: `foap-admin`.
+*   `FOAP_OIDC_SELF_SERVICE_VALUES`: (Optional) Comma-separated role/group values granting self-service access. Empty means any valid OIDC token gets self-service access.
 *   **Provider API Keys:** Environment variables containing API keys for each configured provider. The names of these variables are defined in your model configuration files (e.g., `OPENAI_API_TOKEN`).
 
 #### Optional Admin and Self-Service APIs
@@ -127,6 +136,8 @@ When enabled, the proxy exposes management endpoints:
     *   `GET|POST|DELETE /api/keys...`
 
 Protected endpoints are enforced by middleware only when `FOAP_ENABLE_ACCESS_CONTROL=true` and matching rules are configured.
+
+When OIDC is enabled, admin endpoints can be authorized via mapped role/group claims (instead of only a static admin token), and self-service ownership can be derived from the configured subject claim.
 
 #### Model Configuration Files
 
