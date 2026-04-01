@@ -4,6 +4,7 @@ from fastapi import APIRouter, Header, HTTPException, status
 
 from access_store import store
 from auth import extract_bearer_token, get_oidc_owner_id, identity_from_token
+from config import is_self_service_oidc_only_enabled
 from schemas.access import ApiKeyCreate, ApiKeyCreateResponse, ApiKeyRead
 
 router = APIRouter(prefix="/api", tags=["self-service"])
@@ -12,6 +13,10 @@ def _require_user_token(authorization: Optional[str]) -> str:
     token = extract_bearer_token(authorization)
     if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+    if is_self_service_oidc_only_enabled() and not get_oidc_owner_id(token):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Valid OIDC token required")
+
     return token
 
 
@@ -19,6 +24,8 @@ def _resolve_owner_id(token: str) -> str:
     oidc_owner = get_oidc_owner_id(token)
     if oidc_owner:
         return oidc_owner
+    if is_self_service_oidc_only_enabled():
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Valid OIDC subject claim required")
     return identity_from_token(token)
 
 

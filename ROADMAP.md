@@ -24,14 +24,14 @@
   - [x] add configuration options to enable/disable the administration and user self service endpoints, e.g. via environment variables or config file
   - [x] add optional OIDC authentication with role/group-claim based role mapping for admin and self-service access control
   - [ ] harden OIDC operations and rollout
-    - [ ] add strict startup/runtime validation for OIDC configuration combinations (issuer/jwks/audience/claims) with explicit error messages
-    - [ ] add configurable `OIDC-only` mode for admin and/or self-service APIs (disable static `FOAP_ADMIN_TOKEN` fallback if desired)
+    - [x] add strict startup/runtime validation for OIDC configuration combinations (issuer/jwks/audience/claims) with explicit error messages
+    - [x] add configurable `OIDC-only` mode for admin and/or self-service APIs (disable static `FOAP_ADMIN_TOKEN` fallback if desired)
   - [ ] add model- and endpoint-scoped quota management as first-class admin feature
-    - [ ] add quota policy model for `api_path + model` with configurable window types (e.g. minute/hour/day)
-    - [ ] add per-policy mode switch: quota per user (OIDC subject) vs. no quota enforcement
+    - [x] add quota policy model for `api_path + model` with configurable window types (e.g. minute/hour/day)
+    - [x] add per-policy mode switch: quota per user (OIDC subject) vs. no quota enforcement
     - [ ] add per-user quota overrides/exceptions (higher/lower limits, temporary exemption windows)
     - [ ] add admin endpoints + UI flows to manage quota policies and user overrides
-    - [ ] add middleware enforcement path resolving effective limit in order: user override -> model/endpoint policy -> global default
+    - [x] add middleware enforcement path resolving effective limit in order: user override -> model/endpoint policy -> global default
   - [ ] add VueJS frontend for administration and user self service, e.g. a new page under `/admin` for administration and a new page under `/account` for user self service
 - [ ] migrate provider/model routing configuration from JSON files to database + admin UI
   - [ ] define DB schema for providers, models, endpoint mappings, credentials references, and timeout settings
@@ -47,13 +47,13 @@
 
 - [ ] execution plan (milestones) for targeted rollout
   - [ ] M1: secure auth baseline + operable admin controls
-    - [ ] enforce strict OIDC startup/runtime validation and fail-fast diagnostics
-    - [ ] add configurable OIDC-only mode for admin and self-service APIs
-    - [ ] finalize admin/self-service auth behavior matrix and document migration paths
-    - [ ] provide admin UI/API visibility for current auth mode and active claim mappings
+    - [x] enforce strict OIDC startup/runtime validation and fail-fast diagnostics
+    - [x] add configurable OIDC-only mode for admin and self-service APIs
+    - [x] finalize admin/self-service auth behavior matrix and document migration paths
+    - [x] provide admin API visibility for current auth mode and active claim mappings
   - [ ] M2: quota policy engine (model + endpoint + user overrides)
-    - [ ] implement DB schema and APIs for quota policies scoped by `api_path + model`
-    - [ ] support multiple time windows (minute/hour/day) and optional per-user quota mode
+    - [x] implement DB schema and APIs for quota policies scoped by `api_path + model`
+    - [x] support multiple time windows (minute/hour/day) and optional per-user quota mode
     - [ ] implement per-user overrides/exceptions and effective-policy resolution logic
     - [ ] enforce policy in middleware and expose decision tracing for debugging
   - [ ] M3: config system migration from JSON to DB/UI

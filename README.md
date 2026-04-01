@@ -110,6 +110,8 @@ The application can be configured using the following environment variables:
 *   `FOAP_ENABLE_SELF_SERVICE_API`: (Optional) Enable self-service endpoints under `/api` (`true`/`false`, default `false`).
 *   `FOAP_ENABLE_ACCESS_CONTROL`: (Optional) Enable API-key based request authorization (`true`/`false`, default `false`).
 *   `FOAP_ENABLE_OIDC_AUTH`: (Optional) Enable OIDC bearer token authentication (`true`/`false`, default `false`).
+*   `FOAP_ADMIN_OIDC_ONLY`: (Optional) Enforce OIDC-only auth on `/api/admin/*` and ignore static admin token fallback (`true`/`false`, default `false`).
+*   `FOAP_SELF_SERVICE_OIDC_ONLY`: (Optional) Enforce OIDC-only auth on `/api/*` self-service endpoints (`true`/`false`, default `false`).
 *   `FOAP_ADMIN_TOKEN`: (Required when `FOAP_ENABLE_ADMIN_API=true`) Bearer token for admin API access.
 *   `FOAP_ACCESS_DB_PATH`: (Optional) SQLite path for access-control state (keys, quotas, protected endpoints). Default: `data/access.db`.
 *   `FOAP_OIDC_ISSUER_URL`: (Required for OIDC) Issuer URL used for token validation and discovery.
@@ -128,8 +130,10 @@ When enabled, the proxy exposes management endpoints:
 
 *   **Admin (`/api/admin`)**
     *   `GET /api/admin/health`
+    *   `GET /api/admin/auth-config`
     *   `GET|POST|DELETE /api/admin/keys...`
     *   `PUT|GET /api/admin/keys/{key_id}/quota`
+    *   `GET|POST /api/admin/quota-policies` and `PUT|DELETE /api/admin/quota-policies/{policy_id}`
     *   `GET|POST|DELETE /api/admin/protected-endpoints...`
 *   **Self-service (`/api`)**
     *   `GET /api/health`
@@ -138,6 +142,22 @@ When enabled, the proxy exposes management endpoints:
 Protected endpoints are enforced by middleware only when `FOAP_ENABLE_ACCESS_CONTROL=true` and matching rules are configured.
 
 When OIDC is enabled, admin endpoints can be authorized via mapped role/group claims (instead of only a static admin token), and self-service ownership can be derived from the configured subject claim.
+
+On startup, the app now validates auth/OIDC config combinations and fails fast on invalid setups (for example OIDC-only flags without OIDC enabled, or admin API without any admin auth path).
+
+#### Auth behavior matrix (M1)
+
+*   **Admin auth**
+    *   `FOAP_ADMIN_OIDC_ONLY=true` -> OIDC token with mapped admin role/group is required.
+    *   `FOAP_ADMIN_OIDC_ONLY=false` and `FOAP_ADMIN_TOKEN` + OIDC enabled -> either static admin token or mapped OIDC admin claim.
+    *   `FOAP_ADMIN_OIDC_ONLY=false` and only `FOAP_ADMIN_TOKEN` -> static admin token only.
+    *   `FOAP_ADMIN_OIDC_ONLY=false` and only OIDC enabled -> OIDC admin claim only.
+*   **Self-service auth**
+    *   `FOAP_SELF_SERVICE_OIDC_ONLY=true` -> valid OIDC token with usable subject claim required.
+    *   `FOAP_SELF_SERVICE_OIDC_ONLY=false` and OIDC enabled -> OIDC subject preferred, fallback to token-hash owner mapping.
+    *   `FOAP_SELF_SERVICE_OIDC_ONLY=false` and OIDC disabled -> token-hash owner mapping only.
+
+`GET /api/admin/auth-config` returns the currently active auth mode, OIDC-only flags, and effective claim mapping values. Use this endpoint during rollout/migration to verify the intended auth behavior.
 
 #### Model Configuration Files
 

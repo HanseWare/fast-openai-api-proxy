@@ -43,3 +43,44 @@ class QuotaUsageRead(QuotaPolicyRead):
     reset_in_seconds: int
 
 
+class ModelQuotaPolicyBase(BaseModel):
+    api_path: str = Field(..., min_length=1)
+    model: str = Field(..., min_length=1)
+    window_type: str = Field(..., pattern="^(minute|hour|day)$")
+    request_limit: int = Field(..., ge=1)
+    enforce_per_user: bool = Field(default=True)
+
+
+class ModelQuotaPolicyCreate(ModelQuotaPolicyBase):
+    pass
+
+
+class ModelQuotaPolicyUpdate(ModelQuotaPolicyBase):
+    pass
+
+
+class ModelQuotaPolicyRead(ModelQuotaPolicyBase):
+    id: str
+
+
+class AuthModeSection(BaseModel):
+    mode: str
+    oidc_enabled: bool
+    oidc_only: bool
+    static_token_enabled: bool | None = None
+
+
+class AuthClaimMappings(BaseModel):
+    role_claim: str
+    group_claim: str
+    subject_claim: str
+    admin_values: list[str]
+    self_service_values: list[str]
+
+
+class AuthModeSnapshot(BaseModel):
+    admin: AuthModeSection
+    self_service: AuthModeSection
+    claim_mappings: AuthClaimMappings
+
+

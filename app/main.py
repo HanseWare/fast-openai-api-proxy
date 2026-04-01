@@ -11,7 +11,12 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 
 from models_handler import handler as models
-from config import is_access_control_enabled, is_admin_api_enabled, is_self_service_api_enabled
+from config import (
+    get_auth_configuration_errors,
+    is_access_control_enabled,
+    is_admin_api_enabled,
+    is_self_service_api_enabled,
+)
 from middleware.access_control import AccessControlMiddleware
 from routers.admin import router as admin_router
 from routers.self_service import router as self_service_router
@@ -47,6 +52,11 @@ def setup_logging():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
+    auth_errors = get_auth_configuration_errors()
+    if auth_errors:
+        joined = " | ".join(auth_errors)
+        logger.error(f"Invalid auth/OIDC configuration: {joined}")
+        raise RuntimeError(f"Invalid auth/OIDC configuration: {joined}")
     yield
 
 

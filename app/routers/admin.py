@@ -5,12 +5,16 @@ from fastapi import APIRouter, Depends, Header, HTTPException, status
 
 from access_store import store
 from auth import extract_bearer_token
-from config import get_admin_token, is_oidc_auth_enabled
+from config import get_admin_token, get_auth_mode_snapshot, is_admin_oidc_only_enabled, is_oidc_auth_enabled
 from oidc_auth import get_oidc_claims, has_admin_access
 from schemas.access import (
+    AuthModeSnapshot,
     AdminApiKeyCreate,
     ApiKeyCreateResponse,
     ApiKeyRead,
+    ModelQuotaPolicyCreate,
+    ModelQuotaPolicyRead,
+    ModelQuotaPolicyUpdate,
     ProtectedEndpointRule,
     ProtectedEndpointRuleRead,
     QuotaPolicy,
@@ -23,6 +27,15 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 def require_admin(authorization: Optional[str] = Header(default=None)) -> None:
     expected_token = get_admin_token()
     provided_token = extract_bearer_token(authorization)
+    admin_oidc_only = is_admin_oidc_only_enabled()
+
+    if admin_oidc_only:
+        if not provided_token:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="OIDC bearer token required")
+        claims = get_oidc_claims(provided_token)
+        if claims is None or not has_admin_access(claims):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="OIDC admin claim missing or invalid")
+        return
 
     if expected_token and provided_token == expected_token:
         return
@@ -44,6 +57,11 @@ def require_admin(authorization: Optional[str] = Header(default=None)) -> None:
 @router.get("/health", summary="Admin API health")
 async def admin_health(_: None = Depends(require_admin)):
     return {"status": "ok", "scope": "admin"}
+
+
+@router.get("/auth-config", response_model=AuthModeSnapshot, summary="Get active auth mode and claim mappings")
+async def get_auth_config(_: None = Depends(require_admin)):
+    return get_auth_mode_snapshot()
 
 
 @router.get("/keys", response_model=list[ApiKeyRead], summary="List managed API keys")
@@ -108,4 +126,51 @@ async def get_key_usage(key_id: str, _: None = Depends(require_admin)):
     if usage is None:
         raise HTTPException(status_code=404, detail="Quota not configured")
     return usage
+
+
+@router.get("/quota-policies", response_model=list[ModelQuotaPolicyRead], summary="List quota policies")
+async def list_quota_policies(_: None = Depends(require_admin)):
+    return store.list_quota_policies()
+
+
+@router.post("/quota-policies", response_model=ModelQuotaPolicyRead, summary="Create quota policy")
+async def create_quota_policy(payload: ModelQuotaPolicyCreate, _: None = Depends(require_admin)):
+    try:
+        return store.create_quota_policy(
+            api_path=payload.api_path,
+            model=payload.model,
+            window_type=payload.window_type,
+            request_limit=payload.request_limit,
+            enforce_per_user=payload.enforce_per_user,
+        )
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=409, detail="Quota policy already exists for api_path + model") from exc
+
+
+@router.put("/quota-policies/{policy_id}", response_model=ModelQuotaPolicyRead, summary="Update quota policy")
+async def update_quota_policy(policy_id: str, payload: ModelQuotaPolicyUpdate, _: None = Depends(require_admin)):
+    try:
+        updated = store.update_quota_policy(
+            policy_id=policy_id,
+            api_path=payload.api_path,
+            model=payload.model,
+            window_type=payload.window_type,
+            request_limit=payload.request_limit,
+            enforce_per_user=payload.enforce_per_user,
+        )
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=409, detail="Quota policy already exists for api_path + model") from exc
+
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Quota policy not found")
+    return updated
+
+
+@router.delete("/quota-policies/{policy_id}", summary="Delete quota policy")
+async def delete_quota_policy(policy_id: str, _: None = Depends(require_admin)):
+    deleted = store.delete_quota_policy(policy_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Quota policy not found")
+    return {"status": "deleted", "policy_id": policy_id}
+
 

@@ -56,6 +56,14 @@ def test_access_key_lifecycle_and_quota_enforcement():
     created_id = created_key["id"]
     created_secret = created_key["api_key"]
 
+    create_self_2 = client.post(
+        "/api/keys",
+        headers={"Authorization": "Bearer user-seed-token-2"},
+        json={"name": "my-key-2"},
+    )
+    assert create_self_2.status_code == 200
+    created_secret_2 = create_self_2.json()["api_key"]
+
     self_list = client.get("/api/keys", headers={"Authorization": "Bearer user-seed-token"})
     assert self_list.status_code == 200
     assert len(self_list.json()) == 1
@@ -79,6 +87,40 @@ def test_access_key_lifecycle_and_quota_enforcement():
     )
     assert protect_duplicate.status_code == 409
 
+    policy_create = client.post(
+        "/api/admin/quota-policies",
+        headers={"Authorization": "Bearer admin-secret"},
+        json={
+            "api_path": "/v1/chat/completions",
+            "model": "gpt-4o",
+            "window_type": "minute",
+            "request_limit": 1,
+            "enforce_per_user": True,
+        },
+    )
+    assert policy_create.status_code == 200
+    policy_id = policy_create.json()["id"]
+
+    policy_duplicate = client.post(
+        "/api/admin/quota-policies",
+        headers={"Authorization": "Bearer admin-secret"},
+        json={
+            "api_path": "/v1/chat/completions",
+            "model": "gpt-4o",
+            "window_type": "minute",
+            "request_limit": 2,
+            "enforce_per_user": True,
+        },
+    )
+    assert policy_duplicate.status_code == 409
+
+    policy_list = client.get(
+        "/api/admin/quota-policies",
+        headers={"Authorization": "Bearer admin-secret"},
+    )
+    assert policy_list.status_code == 200
+    assert any(item["id"] == policy_id for item in policy_list.json())
+
     quota_resp = client.put(
         f"/api/admin/keys/{created_id}/quota",
         headers={"Authorization": "Bearer admin-secret"},
@@ -100,6 +142,47 @@ def test_access_key_lifecycle_and_quota_enforcement():
     )
     assert second_call.status_code == 429
 
+    other_user_call = client.post(
+        "/v1/chat/completions",
+        headers={"Authorization": f"Bearer {created_secret_2}"},
+        json={"model": "gpt-4o", "messages": [{"role": "user", "content": "separate user"}]},
+    )
+    assert other_user_call.status_code == 200
+
+    policy_update = client.put(
+        f"/api/admin/quota-policies/{policy_id}",
+        headers={"Authorization": "Bearer admin-secret"},
+        json={
+            "api_path": "/v1/chat/completions",
+            "model": "gpt-4o",
+            "window_type": "minute",
+            "request_limit": 1,
+            "enforce_per_user": False,
+        },
+    )
+    assert policy_update.status_code == 200
+
+    global_first = client.post(
+        "/v1/chat/completions",
+        headers={"Authorization": f"Bearer {created_secret_2}"},
+        json={"model": "gpt-4o", "messages": [{"role": "user", "content": "global limit"}]},
+    )
+    assert global_first.status_code == 200
+
+    global_limit_hit = client.post(
+        "/v1/chat/completions",
+        headers={"Authorization": f"Bearer {created_secret}"},
+        json={"model": "gpt-4o", "messages": [{"role": "user", "content": "global limit hit"}]},
+    )
+    assert global_limit_hit.status_code == 429
+
+    no_policy_model_call = client.post(
+        "/v1/chat/completions",
+        headers={"Authorization": f"Bearer {created_secret_2}"},
+        json={"model": "gpt-4.1", "messages": [{"role": "user", "content": "no policy"}]},
+    )
+    assert no_policy_model_call.status_code == 200
+
     usage_resp = client.get(
         f"/api/admin/keys/{created_id}/usage",
         headers={"Authorization": "Bearer admin-secret"},
@@ -110,6 +193,18 @@ def test_access_key_lifecycle_and_quota_enforcement():
     assert usage_payload["used"] >= 1
     assert usage_payload["remaining"] == 0
     assert usage_payload["reset_in_seconds"] >= 1
+
+    policy_delete = client.delete(
+        f"/api/admin/quota-policies/{policy_id}",
+        headers={"Authorization": "Bearer admin-secret"},
+    )
+    assert policy_delete.status_code == 200
+
+    policy_delete_missing = client.delete(
+        f"/api/admin/quota-policies/{policy_id}",
+        headers={"Authorization": "Bearer admin-secret"},
+    )
+    assert policy_delete_missing.status_code == 404
 
     no_auth_call = client.post(
         "/v1/chat/completions",

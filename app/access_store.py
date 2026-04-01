@@ -1,5 +1,4 @@
 import hashlib
-import os
 import secrets
 import sqlite3
 import threading
@@ -59,6 +58,27 @@ class AccessStore:
                     window_minute INTEGER NOT NULL,
                     request_count INTEGER NOT NULL,
                     PRIMARY KEY(api_key_id, window_minute)
+                );
+
+                CREATE TABLE IF NOT EXISTS quota_policies (
+                    id TEXT PRIMARY KEY,
+                    api_path TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    window_type TEXT NOT NULL,
+                    request_limit INTEGER NOT NULL,
+                    enforce_per_user INTEGER NOT NULL DEFAULT 1,
+                    created_at INTEGER NOT NULL
+                );
+
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_quota_policy_unique
+                    ON quota_policies(api_path, model);
+
+                CREATE TABLE IF NOT EXISTS quota_policy_usage (
+                    policy_id TEXT NOT NULL,
+                    bucket_key TEXT NOT NULL,
+                    window_bucket INTEGER NOT NULL,
+                    request_count INTEGER NOT NULL,
+                    PRIMARY KEY(policy_id, bucket_key, window_bucket)
                 );
                 """
             )
@@ -266,6 +286,20 @@ class AccessStore:
             value = value[:-1]
         return value
 
+    @staticmethod
+    def _normalize_model(model: str) -> str:
+        return model.strip()
+
+    @staticmethod
+    def _window_bucket(now: int, window_type: str) -> tuple[int, int]:
+        if window_type == "minute":
+            return now // 60, 60 - (now % 60)
+        if window_type == "hour":
+            return now // 3600, 3600 - (now % 3600)
+        if window_type == "day":
+            return now // 86400, 86400 - (now % 86400)
+        raise ValueError(f"Unsupported window_type: {window_type}")
+
     def list_protected_endpoints(self) -> list[dict]:
         with self._connect() as conn:
             rows = conn.execute(
@@ -314,6 +348,181 @@ class AccessStore:
                 (normalized_path, normalized_method),
             ).fetchone()
         return row is not None
+
+    def list_quota_policies(self) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, api_path, model, window_type, request_limit, enforce_per_user
+                FROM quota_policies
+                ORDER BY api_path, model
+                """
+            ).fetchall()
+        return [
+            {
+                "id": row["id"],
+                "api_path": row["api_path"],
+                "model": row["model"],
+                "window_type": row["window_type"],
+                "request_limit": int(row["request_limit"]),
+                "enforce_per_user": bool(row["enforce_per_user"]),
+            }
+            for row in rows
+        ]
+
+    def create_quota_policy(
+        self,
+        api_path: str,
+        model: str,
+        window_type: str,
+        request_limit: int,
+        enforce_per_user: bool,
+    ) -> dict:
+        policy_id = str(uuid.uuid4())
+        normalized_path = self._normalize_path(api_path)
+        normalized_model = self._normalize_model(model)
+        now = int(time.time())
+
+        with self._lock:
+            with self._connect() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO quota_policies (id, api_path, model, window_type, request_limit, enforce_per_user, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        policy_id,
+                        normalized_path,
+                        normalized_model,
+                        window_type,
+                        request_limit,
+                        1 if enforce_per_user else 0,
+                        now,
+                    ),
+                )
+
+        return {
+            "id": policy_id,
+            "api_path": normalized_path,
+            "model": normalized_model,
+            "window_type": window_type,
+            "request_limit": request_limit,
+            "enforce_per_user": enforce_per_user,
+        }
+
+    def update_quota_policy(
+        self,
+        policy_id: str,
+        api_path: str,
+        model: str,
+        window_type: str,
+        request_limit: int,
+        enforce_per_user: bool,
+    ) -> Optional[dict]:
+        normalized_path = self._normalize_path(api_path)
+        normalized_model = self._normalize_model(model)
+
+        with self._lock:
+            with self._connect() as conn:
+                cursor = conn.execute(
+                    """
+                    UPDATE quota_policies
+                    SET api_path = ?, model = ?, window_type = ?, request_limit = ?, enforce_per_user = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        normalized_path,
+                        normalized_model,
+                        window_type,
+                        request_limit,
+                        1 if enforce_per_user else 0,
+                        policy_id,
+                    ),
+                )
+                if cursor.rowcount == 0:
+                    return None
+
+        return {
+            "id": policy_id,
+            "api_path": normalized_path,
+            "model": normalized_model,
+            "window_type": window_type,
+            "request_limit": request_limit,
+            "enforce_per_user": enforce_per_user,
+        }
+
+    def delete_quota_policy(self, policy_id: str) -> bool:
+        with self._lock:
+            with self._connect() as conn:
+                conn.execute("DELETE FROM quota_policy_usage WHERE policy_id = ?", (policy_id,))
+                cursor = conn.execute("DELETE FROM quota_policies WHERE id = ?", (policy_id,))
+                return cursor.rowcount > 0
+
+    def find_quota_policy(self, api_path: str, model: str) -> Optional[dict]:
+        normalized_path = self._normalize_path(api_path)
+        normalized_model = self._normalize_model(model)
+
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id, api_path, model, window_type, request_limit, enforce_per_user
+                FROM quota_policies
+                WHERE api_path = ? AND model = ?
+                LIMIT 1
+                """,
+                (normalized_path, normalized_model),
+            ).fetchone()
+
+        if row is None:
+            return None
+
+        return {
+            "id": row["id"],
+            "api_path": row["api_path"],
+            "model": row["model"],
+            "window_type": row["window_type"],
+            "request_limit": int(row["request_limit"]),
+            "enforce_per_user": bool(row["enforce_per_user"]),
+        }
+
+    def consume_quota_policy(self, policy_id: str, bucket_key: str, window_type: str, request_limit: int) -> tuple[bool, int]:
+        now = int(time.time())
+        window_bucket, retry_after = self._window_bucket(now, window_type)
+
+        with self._lock:
+            with self._connect() as conn:
+                row = conn.execute(
+                    """
+                    SELECT request_count
+                    FROM quota_policy_usage
+                    WHERE policy_id = ? AND bucket_key = ? AND window_bucket = ?
+                    """,
+                    (policy_id, bucket_key, window_bucket),
+                ).fetchone()
+
+                current_count = 0 if row is None else int(row["request_count"])
+                if current_count >= request_limit:
+                    return False, retry_after
+
+                if row is None:
+                    conn.execute(
+                        """
+                        INSERT INTO quota_policy_usage (policy_id, bucket_key, window_bucket, request_count)
+                        VALUES (?, ?, ?, 1)
+                        """,
+                        (policy_id, bucket_key, window_bucket),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        UPDATE quota_policy_usage
+                        SET request_count = request_count + 1
+                        WHERE policy_id = ? AND bucket_key = ? AND window_bucket = ?
+                        """,
+                        (policy_id, bucket_key, window_bucket),
+                    )
+
+        return True, retry_after
 
 
 store = AccessStore()
