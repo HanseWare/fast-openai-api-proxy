@@ -25,6 +25,10 @@ def is_access_control_enabled() -> bool:
     return _env_bool("FOAP_ENABLE_ACCESS_CONTROL", False)
 
 
+def is_quota_decision_trace_enabled() -> bool:
+    return _env_bool("FOAP_ENABLE_QUOTA_DECISION_TRACE", False)
+
+
 def get_admin_token() -> str | None:
     token = os.getenv("FOAP_ADMIN_TOKEN")
     if token is None:

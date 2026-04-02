@@ -29,7 +29,7 @@
   - [ ] add model- and endpoint-scoped quota management as first-class admin feature
     - [x] add quota policy model for `api_path + model` with configurable window types (e.g. minute/hour/day)
     - [x] add per-policy mode switch: quota per user (OIDC subject) vs. no quota enforcement
-    - [ ] add per-user quota overrides/exceptions (higher/lower limits, temporary exemption windows)
+    - [x] add per-user quota overrides/exceptions (higher/lower limits, temporary exemption windows)
     - [ ] add admin endpoints + UI flows to manage quota policies and user overrides
     - [x] add middleware enforcement path resolving effective limit in order: user override -> model/endpoint policy -> global default
   - [ ] add VueJS frontend for administration and user self service, e.g. a new page under `/admin` for administration and a new page under `/account` for user self service
@@ -54,8 +54,8 @@
   - [ ] M2: quota policy engine (model + endpoint + user overrides)
     - [x] implement DB schema and APIs for quota policies scoped by `api_path + model`
     - [x] support multiple time windows (minute/hour/day) and optional per-user quota mode
-    - [ ] implement per-user overrides/exceptions and effective-policy resolution logic
-    - [ ] enforce policy in middleware and expose decision tracing for debugging
+    - [x] implement per-user overrides/exceptions and effective-policy resolution logic
+    - [x] enforce policy in middleware and expose decision tracing for debugging
   - [ ] M3: config system migration from JSON to DB/UI
     - [ ] implement provider/model/endpoint CRUD in DB + admin UI
     - [ ] add JSON import workflow with schema validation and diff preview

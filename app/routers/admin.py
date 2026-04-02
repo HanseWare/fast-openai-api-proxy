@@ -1,7 +1,7 @@
 import sqlite3
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 
 from access_store import store
 from auth import extract_bearer_token
@@ -18,11 +18,19 @@ from schemas.access import (
     ProtectedEndpointRule,
     ProtectedEndpointRuleRead,
     QuotaPolicy,
+    QuotaOverrideCreate,
+    QuotaOverrideRead,
+    QuotaOverrideUpdate,
     QuotaPolicyRead,
     QuotaUsageRead,
 )
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
+
+
+def _validate_override_window(starts_at: int | None, ends_at: int | None) -> None:
+    if starts_at is not None and ends_at is not None and ends_at <= starts_at:
+        raise HTTPException(status_code=400, detail="ends_at must be greater than starts_at")
 
 def require_admin(authorization: Optional[str] = Header(default=None)) -> None:
     expected_token = get_admin_token()
@@ -172,5 +180,84 @@ async def delete_quota_policy(policy_id: str, _: None = Depends(require_admin)):
     if not deleted:
         raise HTTPException(status_code=404, detail="Quota policy not found")
     return {"status": "deleted", "policy_id": policy_id}
+
+
+@router.get("/quota-overrides", response_model=list[QuotaOverrideRead], summary="List quota overrides")
+async def list_quota_overrides(
+    response: Response,
+    owner_id: Optional[str] = Query(default=None, min_length=1),
+    api_path: Optional[str] = Query(default=None, min_length=1),
+    model: Optional[str] = Query(default=None, min_length=1),
+    exempt: Optional[bool] = Query(default=None),
+    active_only: bool = Query(default=False),
+    limit: Optional[int] = Query(default=None, ge=1),
+    offset: Optional[int] = Query(default=None, ge=0),
+    _: None = Depends(require_admin),
+):
+    overrides, total = store.list_quota_overrides(
+        owner_id=owner_id,
+        api_path=api_path,
+        model=model,
+        exempt=exempt,
+        active_only=active_only,
+        limit=limit,
+        offset=offset,
+    )
+    response.headers["X-Total-Count"] = str(total)
+    response.headers["X-Returned-Count"] = str(len(overrides))
+    if limit is not None:
+        response.headers["X-Limit"] = str(limit)
+    if offset is not None:
+        response.headers["X-Offset"] = str(offset)
+    return overrides
+
+
+@router.post("/quota-overrides", response_model=QuotaOverrideRead, summary="Create quota override")
+async def create_quota_override(payload: QuotaOverrideCreate, _: None = Depends(require_admin)):
+    _validate_override_window(payload.starts_at, payload.ends_at)
+    try:
+        return store.create_quota_override(
+            api_path=payload.api_path,
+            model=payload.model,
+            owner_id=payload.owner_id,
+            window_type=payload.window_type,
+            request_limit=payload.request_limit,
+            exempt=payload.exempt,
+            starts_at=payload.starts_at,
+            ends_at=payload.ends_at,
+        )
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=409, detail="Quota override already exists for api_path + model + owner_id") from exc
+
+
+@router.put("/quota-overrides/{override_id}", response_model=QuotaOverrideRead, summary="Update quota override")
+async def update_quota_override(override_id: str, payload: QuotaOverrideUpdate, _: None = Depends(require_admin)):
+    _validate_override_window(payload.starts_at, payload.ends_at)
+    try:
+        updated = store.update_quota_override(
+            override_id=override_id,
+            api_path=payload.api_path,
+            model=payload.model,
+            owner_id=payload.owner_id,
+            window_type=payload.window_type,
+            request_limit=payload.request_limit,
+            exempt=payload.exempt,
+            starts_at=payload.starts_at,
+            ends_at=payload.ends_at,
+        )
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=409, detail="Quota override already exists for api_path + model + owner_id") from exc
+
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Quota override not found")
+    return updated
+
+
+@router.delete("/quota-overrides/{override_id}", summary="Delete quota override")
+async def delete_quota_override(override_id: str, _: None = Depends(require_admin)):
+    deleted = store.delete_quota_override(override_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Quota override not found")
+    return {"status": "deleted", "override_id": override_id}
 
 

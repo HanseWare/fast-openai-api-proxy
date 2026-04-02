@@ -63,6 +63,32 @@ class ModelQuotaPolicyRead(ModelQuotaPolicyBase):
     id: str
 
 
+class QuotaOverrideBase(BaseModel):
+    api_path: str = Field(..., min_length=1)
+    model: str = Field(..., min_length=1)
+    owner_id: str = Field(..., min_length=1)
+    window_type: str = Field(..., pattern="^(minute|hour|day)$")
+    request_limit: int = Field(..., ge=1)
+    exempt: bool = Field(default=False)
+    starts_at: int | None = Field(default=None, ge=0)
+    ends_at: int | None = Field(default=None, ge=0)
+
+
+class QuotaOverrideCreate(QuotaOverrideBase):
+    pass
+
+
+class QuotaOverrideUpdate(QuotaOverrideBase):
+    pass
+
+
+class QuotaOverrideRead(QuotaOverrideBase):
+    id: str
+    created_at: int
+    active_now: bool
+    window_state: str
+
+
 class AuthModeSection(BaseModel):
     mode: str
     oidc_enabled: bool

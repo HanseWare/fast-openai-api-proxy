@@ -80,6 +80,30 @@ class AccessStore:
                     request_count INTEGER NOT NULL,
                     PRIMARY KEY(policy_id, bucket_key, window_bucket)
                 );
+
+                CREATE TABLE IF NOT EXISTS quota_overrides (
+                    id TEXT PRIMARY KEY,
+                    api_path TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    owner_id TEXT NOT NULL,
+                    window_type TEXT NOT NULL,
+                    request_limit INTEGER NOT NULL,
+                    exempt INTEGER NOT NULL DEFAULT 0,
+                    starts_at INTEGER,
+                    ends_at INTEGER,
+                    created_at INTEGER NOT NULL
+                );
+
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_quota_override_unique
+                    ON quota_overrides(api_path, model, owner_id);
+
+                CREATE TABLE IF NOT EXISTS quota_override_usage (
+                    override_id TEXT NOT NULL,
+                    bucket_key TEXT NOT NULL,
+                    window_bucket INTEGER NOT NULL,
+                    request_count INTEGER NOT NULL,
+                    PRIMARY KEY(override_id, bucket_key, window_bucket)
+                );
                 """
             )
 
@@ -289,6 +313,38 @@ class AccessStore:
     @staticmethod
     def _normalize_model(model: str) -> str:
         return model.strip()
+
+    @staticmethod
+    def _normalize_owner_id(owner_id: str) -> str:
+        return owner_id.strip()
+
+    @staticmethod
+    def _quota_override_state(starts_at: Optional[int], ends_at: Optional[int], now: Optional[int] = None) -> tuple[bool, str]:
+        now = int(time.time()) if now is None else now
+        active_now = (starts_at is None or starts_at <= now) and (ends_at is None or ends_at > now)
+        if active_now:
+            return True, "active"
+        if starts_at is not None and starts_at > now:
+            return False, "scheduled"
+        return False, "expired"
+
+    @staticmethod
+    def _build_quota_override_read(row: sqlite3.Row, now: Optional[int] = None) -> dict:
+        active_now, window_state = AccessStore._quota_override_state(row["starts_at"], row["ends_at"], now=now)
+        return {
+            "id": row["id"],
+            "api_path": row["api_path"],
+            "model": row["model"],
+            "owner_id": row["owner_id"],
+            "window_type": row["window_type"],
+            "request_limit": int(row["request_limit"]),
+            "exempt": bool(row["exempt"]),
+            "starts_at": row["starts_at"],
+            "ends_at": row["ends_at"],
+            "created_at": int(row["created_at"]),
+            "active_now": active_now,
+            "window_state": window_state,
+        }
 
     @staticmethod
     def _window_bucket(now: int, window_type: str) -> tuple[int, int]:
@@ -520,6 +576,267 @@ class AccessStore:
                         WHERE policy_id = ? AND bucket_key = ? AND window_bucket = ?
                         """,
                         (policy_id, bucket_key, window_bucket),
+                    )
+
+        return True, retry_after
+
+    def list_quota_overrides(
+        self,
+        owner_id: Optional[str] = None,
+        api_path: Optional[str] = None,
+        model: Optional[str] = None,
+        exempt: Optional[bool] = None,
+        active_only: bool = False,
+        limit: Optional[int] = None,
+        offset: Optional[int] = None,
+    ) -> tuple[list[dict], int]:
+        clauses: list[str] = []
+        params: list[object] = []
+        now = int(time.time())
+
+        if owner_id is not None:
+            clauses.append("owner_id = ?")
+            params.append(self._normalize_owner_id(owner_id))
+        if api_path is not None:
+            clauses.append("api_path = ?")
+            params.append(self._normalize_path(api_path))
+        if model is not None:
+            clauses.append("model = ?")
+            params.append(self._normalize_model(model))
+        if exempt is not None:
+            clauses.append("exempt = ?")
+            params.append(1 if exempt else 0)
+        if active_only:
+            clauses.append("(starts_at IS NULL OR starts_at <= ?)")
+            clauses.append("(ends_at IS NULL OR ends_at > ?)")
+            params.extend([now, now])
+
+        where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+
+        count_sql = f"SELECT COUNT(*) AS total FROM quota_overrides {where_sql}"
+        data_sql = f"""
+            SELECT id, api_path, model, owner_id, window_type, request_limit, exempt, starts_at, ends_at, created_at
+            FROM quota_overrides
+            {where_sql}
+            ORDER BY created_at DESC, api_path, model, owner_id
+        """
+
+        if limit is not None:
+            data_sql += " LIMIT ?"
+            params_with_pagination = [*params, limit]
+            if offset is not None:
+                data_sql += " OFFSET ?"
+                params_with_pagination.append(offset)
+        else:
+            params_with_pagination = params
+
+        with self._connect() as conn:
+            total_row = conn.execute(count_sql, params).fetchone()
+            rows = conn.execute(data_sql, params_with_pagination).fetchall()
+
+        total = 0 if total_row is None else int(total_row["total"])
+        return [self._build_quota_override_read(row, now=now) for row in rows], total
+
+    def create_quota_override(
+        self,
+        api_path: str,
+        model: str,
+        owner_id: str,
+        window_type: str,
+        request_limit: int,
+        exempt: bool,
+        starts_at: Optional[int],
+        ends_at: Optional[int],
+    ) -> dict:
+        override_id = str(uuid.uuid4())
+        normalized_path = self._normalize_path(api_path)
+        normalized_model = self._normalize_model(model)
+        normalized_owner = self._normalize_owner_id(owner_id)
+        now = int(time.time())
+
+        with self._lock:
+            with self._connect() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO quota_overrides
+                    (id, api_path, model, owner_id, window_type, request_limit, exempt, starts_at, ends_at, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        override_id,
+                        normalized_path,
+                        normalized_model,
+                        normalized_owner,
+                        window_type,
+                        request_limit,
+                        1 if exempt else 0,
+                        starts_at,
+                        ends_at,
+                        now,
+                    ),
+                )
+
+        return {
+            "id": override_id,
+            "api_path": normalized_path,
+            "model": normalized_model,
+            "owner_id": normalized_owner,
+            "window_type": window_type,
+            "request_limit": request_limit,
+            "exempt": exempt,
+            "starts_at": starts_at,
+            "ends_at": ends_at,
+            "created_at": now,
+            "active_now": self._quota_override_state(starts_at, ends_at, now=now)[0],
+            "window_state": self._quota_override_state(starts_at, ends_at, now=now)[1],
+        }
+
+    def update_quota_override(
+        self,
+        override_id: str,
+        api_path: str,
+        model: str,
+        owner_id: str,
+        window_type: str,
+        request_limit: int,
+        exempt: bool,
+        starts_at: Optional[int],
+        ends_at: Optional[int],
+    ) -> Optional[dict]:
+        normalized_path = self._normalize_path(api_path)
+        normalized_model = self._normalize_model(model)
+        normalized_owner = self._normalize_owner_id(owner_id)
+
+        with self._lock:
+            with self._connect() as conn:
+                cursor = conn.execute(
+                    """
+                    UPDATE quota_overrides
+                    SET api_path = ?, model = ?, owner_id = ?, window_type = ?, request_limit = ?, exempt = ?, starts_at = ?, ends_at = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        normalized_path,
+                        normalized_model,
+                        normalized_owner,
+                        window_type,
+                        request_limit,
+                        1 if exempt else 0,
+                        starts_at,
+                        ends_at,
+                        override_id,
+                    ),
+                )
+                if cursor.rowcount == 0:
+                    return None
+
+                row = conn.execute(
+                    """
+                    SELECT created_at
+                    FROM quota_overrides
+                    WHERE id = ?
+                    """,
+                    (override_id,),
+                ).fetchone()
+
+        return {
+            "id": override_id,
+            "api_path": normalized_path,
+            "model": normalized_model,
+            "owner_id": normalized_owner,
+            "window_type": window_type,
+            "request_limit": request_limit,
+            "exempt": exempt,
+            "starts_at": starts_at,
+            "ends_at": ends_at,
+            "created_at": int(row["created_at"]) if row is not None else int(time.time()),
+            "active_now": self._quota_override_state(starts_at, ends_at)[0],
+            "window_state": self._quota_override_state(starts_at, ends_at)[1],
+        }
+
+    def delete_quota_override(self, override_id: str) -> bool:
+        with self._lock:
+            with self._connect() as conn:
+                conn.execute("DELETE FROM quota_override_usage WHERE override_id = ?", (override_id,))
+                cursor = conn.execute("DELETE FROM quota_overrides WHERE id = ?", (override_id,))
+                return cursor.rowcount > 0
+
+    def find_active_quota_override(self, api_path: str, model: str, owner_id: str) -> Optional[dict]:
+        normalized_path = self._normalize_path(api_path)
+        normalized_model = self._normalize_model(model)
+        normalized_owner = self._normalize_owner_id(owner_id)
+        now = int(time.time())
+
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id, api_path, model, owner_id, window_type, request_limit, exempt, starts_at, ends_at, created_at
+                FROM quota_overrides
+                WHERE api_path = ?
+                  AND model = ?
+                  AND owner_id = ?
+                  AND (starts_at IS NULL OR starts_at <= ?)
+                  AND (ends_at IS NULL OR ends_at > ?)
+                LIMIT 1
+                """,
+                (normalized_path, normalized_model, normalized_owner, now, now),
+            ).fetchone()
+
+        if row is None:
+            return None
+
+        return {
+            "id": row["id"],
+            "api_path": row["api_path"],
+            "model": row["model"],
+            "owner_id": row["owner_id"],
+            "window_type": row["window_type"],
+            "request_limit": int(row["request_limit"]),
+            "exempt": bool(row["exempt"]),
+            "starts_at": row["starts_at"],
+            "ends_at": row["ends_at"],
+            "created_at": int(row["created_at"]),
+            "active_now": self._quota_override_state(row["starts_at"], row["ends_at"], now=now)[0],
+            "window_state": self._quota_override_state(row["starts_at"], row["ends_at"], now=now)[1],
+        }
+
+    def consume_quota_override(
+        self, override_id: str, bucket_key: str, window_type: str, request_limit: int
+    ) -> tuple[bool, int]:
+        now = int(time.time())
+        window_bucket, retry_after = self._window_bucket(now, window_type)
+
+        with self._lock:
+            with self._connect() as conn:
+                row = conn.execute(
+                    """
+                    SELECT request_count
+                    FROM quota_override_usage
+                    WHERE override_id = ? AND bucket_key = ? AND window_bucket = ?
+                    """,
+                    (override_id, bucket_key, window_bucket),
+                ).fetchone()
+
+                current_count = 0 if row is None else int(row["request_count"])
+                if current_count >= request_limit:
+                    return False, retry_after
+
+                if row is None:
+                    conn.execute(
+                        """
+                        INSERT INTO quota_override_usage (override_id, bucket_key, window_bucket, request_count)
+                        VALUES (?, ?, ?, 1)
+                        """,
+                        (override_id, bucket_key, window_bucket),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        UPDATE quota_override_usage
+                        SET request_count = request_count + 1
+                        WHERE override_id = ? AND bucket_key = ? AND window_bucket = ?
+                        """,
+                        (override_id, bucket_key, window_bucket),
                     )
 
         return True, retry_after

@@ -109,6 +109,7 @@ The application can be configured using the following environment variables:
 *   `FOAP_ENABLE_ADMIN_API`: (Optional) Enable admin endpoints under `/api/admin` (`true`/`false`, default `false`).
 *   `FOAP_ENABLE_SELF_SERVICE_API`: (Optional) Enable self-service endpoints under `/api` (`true`/`false`, default `false`).
 *   `FOAP_ENABLE_ACCESS_CONTROL`: (Optional) Enable API-key based request authorization (`true`/`false`, default `false`).
+*   `FOAP_ENABLE_QUOTA_DECISION_TRACE`: (Optional) Emit quota resolution trace header (`X-FOAP-Quota-Decision`) on guarded requests (`true`/`false`, default `false`).
 *   `FOAP_ENABLE_OIDC_AUTH`: (Optional) Enable OIDC bearer token authentication (`true`/`false`, default `false`).
 *   `FOAP_ADMIN_OIDC_ONLY`: (Optional) Enforce OIDC-only auth on `/api/admin/*` and ignore static admin token fallback (`true`/`false`, default `false`).
 *   `FOAP_SELF_SERVICE_OIDC_ONLY`: (Optional) Enforce OIDC-only auth on `/api/*` self-service endpoints (`true`/`false`, default `false`).
@@ -134,7 +135,10 @@ When enabled, the proxy exposes management endpoints:
     *   `GET|POST|DELETE /api/admin/keys...`
     *   `PUT|GET /api/admin/keys/{key_id}/quota`
     *   `GET|POST /api/admin/quota-policies` and `PUT|DELETE /api/admin/quota-policies/{policy_id}`
+    *   `GET|POST /api/admin/quota-overrides` and `PUT|DELETE /api/admin/quota-overrides/{override_id}`
     *   `GET|POST|DELETE /api/admin/protected-endpoints...`
+
+`GET /api/admin/quota-overrides` accepts optional `owner_id`, `api_path`, `model`, `exempt`, `active_only`, `limit`, and `offset` query parameters. The response stays a plain list, and the endpoint exposes `X-Total-Count`, `X-Returned-Count`, `X-Limit`, and `X-Offset` headers for UI pagination. Each override item includes `created_at`, `active_now`, and `window_state` for audit-friendly display.
 *   **Self-service (`/api`)**
     *   `GET /api/health`
     *   `GET|POST|DELETE /api/keys...`
