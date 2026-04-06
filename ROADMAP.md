@@ -1,63 +1,62 @@
-- [x] write initial AGENTS.md with overview of project structure, important paths, working rules for agents, and repo-specific hints
-- [ ] enhance existing endpoints to match most recent api docs, especially "transcribe", but also the others
-  - [x] add stateless passthrough coverage for core Responses API endpoints (`/responses`, `/responses/{id}`, `/responses/{id}/cancel`, `/responses/{id}/input_items`, `/responses/compact`, `/responses/input_tokens`)
-  - [x] improve transcription endpoint parameter handling/validation for recent OpenAI API behavior (`stream`, `timestamp_granularities[]`, diarize constraints, known speaker references)
-  - [x] improve audio speech/translation passthrough behavior (preserve backend error payloads, normalize unsupported whisper streaming)
-  - [x] unify error/status passthrough for embeddings/moderations/images instead of generic local fallback errors
-  - [x] harden bearer token extraction in shared request/upload utilities
-  - [x] align streaming response content-type handling with SSE defaults and preserve existing backend stream headers
-  - [x] harden custom image data route (`/images/data/{model}/{file_id}`) for auth parsing and backend error passthrough
-  - [x] harden core utility request/response handling (invalid JSON -> 400, upstream transport failures -> 502, safer JSON parsing)
-  - [x] harden image URL-response branches against non-JSON upstream payloads
-  - [x] revisit completions endpoints for docs parity metadata and stream/error passthrough correctness
-  - [ ] continue endpoint-by-endpoint docs parity pass for remaining routes
-- [x] split api_v1.py into multiple files if it grows too large using APIRouter and mounting them in api_v1.py, e.g. `routers/completions.py`, `routers/embeddings.py`, `routers/audio.py`, `routers/images.py`, etc.
-- [x] add stateless handling for Responses API (passthrough routing)
-- [ ] add stateful handling/interception for Responses API once database extension and multi-user state are available
-- [ ] improve everything else iteratively, e.g. error handling, logging, code structure, etc.
-- [ ] add optionally deployable and configurable administration and multi-user self service endpoints, e.g. managing user api keys, setting quotas, setting endpoints (or models) protected by api keys, etc.
-  - [x] add feature flags for optional deployment of admin and self-service API surfaces (`FOAP_ENABLE_ADMIN_API`, `FOAP_ENABLE_SELF_SERVICE_API`)
-  - [x] add initial route skeletons for `/api/admin/*` and `/api/keys` with auth guards and explicit not-implemented responses
-  - [x] add database-backed storage foundation (SQLite) for api keys, quotas, protected endpoints
-  - [x] add endpoints for administration and user self service, e.g. `GET /api/admin/keys`, `POST /api/admin/keys`, `DELETE /api/admin/keys/{key_id}`, `GET /api/keys`, `POST /api/keys`, `DELETE /api/keys/{key_id}`, `GET /api/admin/protected-endpoints`, `POST /api/admin/protected-endpoints`, `DELETE /api/admin/protected-endpoints/{endpoint_id}`, etc.
-  - [x] add handling for api keys, quotas, protected endpoints, etc. in the main logic of the API via optional middleware
-  - [x] add configuration options to enable/disable the administration and user self service endpoints, e.g. via environment variables or config file
-  - [x] add optional OIDC authentication with role/group-claim based role mapping for admin and self-service access control
-  - [ ] harden OIDC operations and rollout
-    - [x] add strict startup/runtime validation for OIDC configuration combinations (issuer/jwks/audience/claims) with explicit error messages
-    - [x] add configurable `OIDC-only` mode for admin and/or self-service APIs (disable static `FOAP_ADMIN_TOKEN` fallback if desired)
-  - [ ] add model- and endpoint-scoped quota management as first-class admin feature
-    - [x] add quota policy model for `api_path + model` with configurable window types (e.g. minute/hour/day)
-    - [x] add per-policy mode switch: quota per user (OIDC subject) vs. no quota enforcement
-    - [x] add per-user quota overrides/exceptions (higher/lower limits, temporary exemption windows)
-    - [ ] add admin endpoints + UI flows to manage quota policies and user overrides
-    - [x] add middleware enforcement path resolving effective limit in order: user override -> model/endpoint policy -> global default
-  - [ ] add VueJS frontend for administration and user self service, e.g. a new page under `/admin` for administration and a new page under `/account` for user self service
-- [ ] migrate provider/model routing configuration from JSON files to database + admin UI
-  - [ ] define DB schema for providers, models, endpoint mappings, credentials references, and timeout settings
-  - [ ] add admin CRUD endpoints and UI screens for provider/model/endpoint configuration
-  - [ ] keep JSON as import bootstrap path (one-time or repeatable) via admin UI upload workflow
-  - [ ] add import validation + diff preview before applying JSON changes to DB
-  - [ ] introduce staged cutover: runtime reads DB first, optional JSON fallback for migration period, then disable fallback by config
-- [ ] add and extend database models to enable acting as middleware for handling stateful features of Responses API and related features like Vector Stores and Conversations API
-  - [ ] add database models and endpoints handling per user vector storage inside postgreSQL utilizing pgvector
-  - [ ] add database models and migrations for conversations, messages, etc. as needed for stateful features of Responses API and Conversations API
-  - [ ] add handling for conversations, messages, etc. in the main logic of the API
-  - [ ] add endpoints for managing conversations, messages, etc. as needed for stateful features of Responses API and related features
+# ROADMAP
 
-- [ ] execution plan (milestones) for targeted rollout
-  - [ ] M1: secure auth baseline + operable admin controls
-    - [x] enforce strict OIDC startup/runtime validation and fail-fast diagnostics
-    - [x] add configurable OIDC-only mode for admin and self-service APIs
-    - [x] finalize admin/self-service auth behavior matrix and document migration paths
-    - [x] provide admin API visibility for current auth mode and active claim mappings
-  - [ ] M2: quota policy engine (model + endpoint + user overrides)
-    - [x] implement DB schema and APIs for quota policies scoped by `api_path + model`
-    - [x] support multiple time windows (minute/hour/day) and optional per-user quota mode
-    - [x] implement per-user overrides/exceptions and effective-policy resolution logic
-    - [x] enforce policy in middleware and expose decision tracing for debugging
-  - [ ] M3: config system migration from JSON to DB/UI
-    - [ ] implement provider/model/endpoint CRUD in DB + admin UI
-    - [ ] add JSON import workflow with schema validation and diff preview
-    - [ ] introduce staged runtime cutover: DB-first with temporary JSON fallback
-    - [ ] complete fallback removal path with explicit configuration switch
+## Achieved So Far (Summary)
+
+- [x] Initial agent guidance added and later tightened (`AGENTS.md`)
+- [x] API v1 split into modular routers (`backend/app/routers/*`)
+- [x] Stateless Responses API passthrough added (core routes)
+- [x] Endpoint hardening pass completed for major surfaces:
+  - completions stream/error passthrough improvements
+  - transcription parameter handling updates
+  - audio/image/moderation/embedding passthrough robustness
+  - safer JSON parsing and upstream failure handling
+  - improved bearer extraction and auth parsing robustness
+- [x] Optional admin and self-service APIs implemented behind feature flags
+- [x] Access-control middleware integrated for protected endpoints and quotas
+- [x] SQLite-backed storage foundation added (`access_store`)
+- [x] OIDC support added with strict config validation and OIDC-only modes
+- [x] Quota policy engine baseline implemented:
+  - model + endpoint scoped policies (`api_path + model`)
+  - minute/hour/day windows
+  - per-policy mode: per-user vs global
+- [x] Per-user quota overrides/exceptions implemented:
+  - override > policy > default resolution order
+  - temporary windows (`starts_at` / `ends_at`) and exemption mode
+- [x] Quota decision tracing for debugging (`X-FOAP-Quota-Decision`)
+- [x] Admin UX-oriented quota override API improvements:
+  - filtering and pagination support
+  - audit-friendly fields (`created_at`, `active_now`, `window_state`)
+- [x] Backend repository structure moved under `backend/` (`app`, `configs`, `tests`, `Dockerfile`, `requirements*`)
+
+## Open Backend Checklist
+
+- [ ] Continue endpoint-by-endpoint OpenAI docs parity pass for remaining routes
+- [ ] Harden OIDC operations for rollout (operational playbooks, fallback and diagnostics refinements)
+- [ ] Complete admin API flows around quota operations (remaining UX-facing API gaps)
+- [ ] Migrate provider/model routing config from JSON to DB:
+  - [ ] DB schema for providers/models/endpoints/credentials/timeouts
+  - [ ] Admin CRUD APIs for provider/model/endpoint config
+  - [ ] JSON import bootstrap path and validation
+  - [ ] Diff preview before applying import changes
+  - [ ] Staged runtime cutover (DB-first, temporary JSON fallback, then fallback-off)
+- [ ] Add stateful interception/storage foundations for Responses and related features:
+  - [ ] conversations/messages models
+  - [ ] vector storage integration path (pgvector/PostgreSQL)
+  - [ ] middleware logic for stateful features
+  - [ ] management endpoints for stateful objects
+- [ ] General iterative improvements (error handling, logging, structure)
+
+## Open Frontend Checklist
+
+- [ ] Build VueJS admin frontend (`/admin`) for:
+  - [ ] API keys management
+  - [ ] protected endpoints management
+  - [ ] quota policies management
+  - [ ] quota overrides management
+  - [ ] auth-mode visibility (`/api/admin/auth-config`)
+- [ ] Build VueJS self-service frontend (`/account`) for:
+  - [ ] own API keys lifecycle
+  - [ ] own quota visibility / usage UX
+- [ ] Frontend UX for DB-backed provider/model/endpoint config once backend CRUD is ready
+- [ ] Frontend UX for JSON import workflow (validation + diff preview)
+- [ ] Rollout readiness: auth-aware login/session UX aligned with static-token/OIDC modes
