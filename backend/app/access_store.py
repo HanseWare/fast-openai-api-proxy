@@ -104,6 +104,44 @@ class AccessStore:
                     request_count INTEGER NOT NULL,
                     PRIMARY KEY(override_id, bucket_key, window_bucket)
                 );
+
+                CREATE TABLE IF NOT EXISTS providers (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL UNIQUE,
+                    api_key_variable TEXT NOT NULL,
+                    prefix TEXT NOT NULL DEFAULT '',
+                    default_base_url TEXT,
+                    default_request_timeout INTEGER,
+                    default_health_timeout INTEGER,
+                    created_at INTEGER NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS provider_models (
+                    id TEXT PRIMARY KEY,
+                    provider_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    FOREIGN KEY(provider_id) REFERENCES providers(id),
+                    UNIQUE(provider_id, name)
+                );
+
+                CREATE TABLE IF NOT EXISTS provider_model_endpoints (
+                    id TEXT PRIMARY KEY,
+                    model_id TEXT NOT NULL,
+                    path TEXT NOT NULL,
+                    target_model_name TEXT NOT NULL,
+                    target_base_url TEXT,
+                    request_timeout INTEGER,
+                    health_timeout INTEGER,
+                    FOREIGN KEY(model_id) REFERENCES provider_models(id),
+                    UNIQUE(model_id, path)
+                );
+
+                CREATE TABLE IF NOT EXISTS model_aliases (
+                    id TEXT PRIMARY KEY,
+                    alias_name TEXT NOT NULL UNIQUE,
+                    target_model_name TEXT NOT NULL,
+                    created_at INTEGER NOT NULL
+                );
                 """
             )
 
@@ -405,15 +443,48 @@ class AccessStore:
             ).fetchone()
         return row is not None
 
-    def list_quota_policies(self) -> list[dict]:
+    def list_quota_policies(
+        self,
+        api_path: Optional[str] = None,
+        model: Optional[str] = None,
+        limit: Optional[int] = None,
+        offset: Optional[int] = None,
+    ) -> tuple[list[dict], int]:
+        clauses: list[str] = []
+        params: list[object] = []
+
+        if api_path is not None:
+            clauses.append("api_path = ?")
+            params.append(self._normalize_path(api_path))
+        if model is not None:
+            clauses.append("model = ?")
+            params.append(self._normalize_model(model))
+
+        where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+
+        count_sql = f"SELECT COUNT(*) AS total FROM quota_policies {where_sql}"
+        data_sql = f"""
+            SELECT id, api_path, model, window_type, request_limit, enforce_per_user
+            FROM quota_policies
+            {where_sql}
+            ORDER BY api_path, model
+        """
+
+        if limit is not None:
+            data_sql += " LIMIT ?"
+            params_with_pagination = [*params, limit]
+            if offset is not None:
+                data_sql += " OFFSET ?"
+                params_with_pagination.append(offset)
+        else:
+            params_with_pagination = params
+
         with self._connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT id, api_path, model, window_type, request_limit, enforce_per_user
-                FROM quota_policies
-                ORDER BY api_path, model
-                """
-            ).fetchall()
+            total_row = conn.execute(count_sql, params).fetchone()
+            rows = conn.execute(data_sql, params_with_pagination).fetchall()
+
+        total = 0 if total_row is None else int(total_row["total"])
+        
         return [
             {
                 "id": row["id"],
@@ -424,7 +495,30 @@ class AccessStore:
                 "enforce_per_user": bool(row["enforce_per_user"]),
             }
             for row in rows
-        ]
+        ], total
+
+    def get_quota_policy(self, policy_id: str) -> Optional[dict]:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id, api_path, model, window_type, request_limit, enforce_per_user
+                FROM quota_policies
+                WHERE id = ?
+                """,
+                (policy_id,),
+            ).fetchone()
+        
+        if row is None:
+            return None
+            
+        return {
+            "id": row["id"],
+            "api_path": row["api_path"],
+            "model": row["model"],
+            "window_type": row["window_type"],
+            "request_limit": int(row["request_limit"]),
+            "enforce_per_user": bool(row["enforce_per_user"]),
+        }
 
     def create_quota_policy(
         self,
@@ -636,6 +730,23 @@ class AccessStore:
 
         total = 0 if total_row is None else int(total_row["total"])
         return [self._build_quota_override_read(row, now=now) for row in rows], total
+
+    def get_quota_override(self, override_id: str) -> Optional[dict]:
+        now = int(time.time())
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id, api_path, model, owner_id, window_type, request_limit, exempt, starts_at, ends_at, created_at
+                FROM quota_overrides
+                WHERE id = ?
+                """,
+                (override_id,),
+            ).fetchone()
+            
+        if row is None:
+            return None
+            
+        return self._build_quota_override_read(row, now=now)
 
     def create_quota_override(
         self,

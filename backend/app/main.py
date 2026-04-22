@@ -19,6 +19,7 @@ from config import (
 )
 from middleware.access_control import AccessControlMiddleware
 from routers.admin import router as admin_router
+from routers.admin_config import router as admin_config_router
 from routers.self_service import router as self_service_router
 from api_v1 import app as api_v1_app
 __name__ = "hanseware.fast-openai-api-proxy"
@@ -118,6 +119,7 @@ app.mount("/v1", app=api_v1_app)
 if is_admin_api_enabled():
     logger.info("Enabling admin API routes under /api/admin")
     app.include_router(admin_router)
+    app.include_router(admin_config_router)
 
 if is_self_service_api_enabled():
     logger.info("Enabling self-service API routes under /api")

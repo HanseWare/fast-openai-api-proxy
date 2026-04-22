@@ -137,8 +137,35 @@ async def get_key_usage(key_id: str, _: None = Depends(require_admin)):
 
 
 @router.get("/quota-policies", response_model=list[ModelQuotaPolicyRead], summary="List quota policies")
-async def list_quota_policies(_: None = Depends(require_admin)):
-    return store.list_quota_policies()
+async def list_quota_policies(
+    response: Response,
+    api_path: Optional[str] = Query(default=None, min_length=1),
+    model: Optional[str] = Query(default=None, min_length=1),
+    limit: Optional[int] = Query(default=None, ge=1),
+    offset: Optional[int] = Query(default=None, ge=0),
+    _: None = Depends(require_admin),
+):
+    policies, total = store.list_quota_policies(
+        api_path=api_path,
+        model=model,
+        limit=limit,
+        offset=offset,
+    )
+    response.headers["X-Total-Count"] = str(total)
+    response.headers["X-Returned-Count"] = str(len(policies))
+    if limit is not None:
+        response.headers["X-Limit"] = str(limit)
+    if offset is not None:
+        response.headers["X-Offset"] = str(offset)
+    return policies
+
+
+@router.get("/quota-policies/{policy_id}", response_model=ModelQuotaPolicyRead, summary="Get quota policy")
+async def get_quota_policy(policy_id: str, _: None = Depends(require_admin)):
+    policy = store.get_quota_policy(policy_id)
+    if not policy:
+        raise HTTPException(status_code=404, detail="Quota policy not found")
+    return policy
 
 
 @router.post("/quota-policies", response_model=ModelQuotaPolicyRead, summary="Create quota policy")
@@ -180,6 +207,14 @@ async def delete_quota_policy(policy_id: str, _: None = Depends(require_admin)):
     if not deleted:
         raise HTTPException(status_code=404, detail="Quota policy not found")
     return {"status": "deleted", "policy_id": policy_id}
+
+
+@router.get("/quota-overrides/{override_id}", response_model=QuotaOverrideRead, summary="Get quota override")
+async def get_quota_override(override_id: str, _: None = Depends(require_admin)):
+    override = store.get_quota_override(override_id)
+    if not override:
+        raise HTTPException(status_code=404, detail="Quota override not found")
+    return override
 
 
 @router.get("/quota-overrides", response_model=list[QuotaOverrideRead], summary="List quota overrides")
