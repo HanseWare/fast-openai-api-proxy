@@ -1,0 +1,478 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: foap-endpoints-config
+data:
+  mylab-models.json: |
+    {
+      "myLab-models": {
+        "prefix": "",
+        "models": {
+          "chandra-ocr-2": {
+            "endpoints": [
+              {
+                "path": "v1/chat/completions",
+                "target_base_url": "http://chandra-ocr-2.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "chandra-ocr-2",
+                "request_timeout": 300
+              }
+            ]
+          },
+          "qwen3-vl-8b": {
+            "endpoints": [
+              {
+                "path": "v1/chat/completions",
+                "target_base_url": "http://qwen3-vl-8b.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "qwen3-vl-8b",
+                "request_timeout": 300
+              }
+            ]
+          },
+          "qwen3.5-27b": {
+            "endpoints": [
+              {
+                "path": "v1/chat/completions",
+                "target_base_url": "http://gemma4-31b.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "gemma4-31b",
+                "request_timeout": 300
+              }
+            ]
+          },
+          "gemma4-31b": {
+            "endpoints": [
+              {
+                "path": "v1/chat/completions",
+                "target_base_url": "http://gemma4-31b.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "gemma4-31b",
+                "request_timeout": 300
+              }
+            ]
+          },
+          "gemma4-e2b": {
+            "endpoints": [
+              {
+                "path": "v1/chat/completions",
+                "target_base_url": "http://gemma4-e2b.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "gemma4-e2b",
+                "request_timeout": 300
+              }
+            ]
+          },
+          "ocr-extract": {
+            "endpoints": [
+              {
+                "path": "v1/chat/completions",
+                "target_base_url": "http://chandra-ocr-2.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "chandra-ocr-2",
+                "request_timeout": 300
+              }
+            ]
+          },
+          "chat-fast": {
+            "endpoints": [
+              {
+                "path": "v1/chat/completions",
+                "target_base_url": "http://gemma4-e2b.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "gemma4-e2b",
+                "request_timeout": 300
+              }
+            ]
+          },
+          "chat-small": {
+            "endpoints": [
+              {
+                "path": "v1/chat/completions",
+                "target_base_url": "http://qwen3-vl-8b.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "qwen3-vl-8b",
+                "request_timeout": 300
+              }
+            ]
+          },
+          "chat-medium": {
+            "endpoints": [
+              {
+                "path": "v1/chat/completions",
+                "target_base_url": "http://gemma4-31b.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "gemma4-31b",
+                "request_timeout": 300
+              }
+            ]
+          },
+          "chat-large": {
+            "endpoints": [
+              {
+                "path": "v1/chat/completions",
+                "target_base_url": "http://gpt-oss-120b.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "gpt-oss-120b"
+              },
+              {
+                "path": "v1/completions",
+                "target_base_url": "http://gpt-oss-120b.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "gpt-oss-120b"
+              }
+            ]
+          },
+          "chat-default": {
+            "endpoints": [
+              {
+                "path": "v1/chat/completions",
+                "target_base_url": "http://gpt-oss-120b.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "gpt-oss-120b"
+              },
+              {
+                "path": "v1/completions",
+                "target_base_url": "http://gpt-oss-120b.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "gpt-oss-120b"
+              }
+            ]
+          },
+          "image-gen-hd": {
+            "endpoints": [
+              {
+                "path": "v1/images/generations",
+                "target_base_url": "http://fastfusion-flux-2-dev-svc.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "flux.2-dev",
+                "health_timeout": 180,
+                "request_timeout": 900
+              },
+              {
+                "path": "v1/images/edits",
+                "target_base_url": "http://fastfusion-flux-2-dev-svc.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "flux.2-dev",
+                "health_timeout": 180,
+                "request_timeout": 300
+              },
+              {
+                "path": "v1/images/variations",
+                "target_base_url": "http://fastfusion-flux-2-dev-svc.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "flux.2-dev",
+                "health_timeout": 180,
+                "request_timeout": 300
+              },
+              {
+                "path": "v1/images/data",
+                "target_base_url": "http://fastfusion-flux-2-dev-svc.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "flux.2-dev",
+                "health_timeout": 180,
+                "request_timeout": 300
+              }
+            ]
+          },
+          "image-gen-fast": {
+            "endpoints": [
+              {
+                "path": "v1/images/edits",
+                "target_base_url": "http://fastfusion-flux-2-klein-svc.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "flux.2-klein",
+                "health_timeout": 180,
+                "request_timeout": 300
+              },
+              {
+                "path": "v1/images/generations",
+                "target_base_url": "http://fastfusion-flux-2-klein-svc.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "flux.2-klein",
+                "health_timeout": 180,
+                "request_timeout": 300
+              },
+              {
+                "path": "v1/images/data",
+                "target_base_url": "http://fastfusion-flux-2-klein-svc.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "flux.2-klein",
+                "health_timeout": 180,
+                "request_timeout": 300
+              }
+            ]
+          },
+          "flux.1-dev": {
+            "endpoints": [
+              {
+                "path": "v1/images/generations",
+                "target_base_url": "http://fastfusion-flux-2-dev-svc.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "flux.2-dev",
+                "health_timeout": 180,
+                "request_timeout": 900
+              },
+              {
+                "path": "v1/images/edits",
+                "target_base_url": "http://fastfusion-flux-2-dev-svc.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "flux.2-dev",
+                "health_timeout": 180,
+                "request_timeout": 300
+              },
+              {
+                "path": "v1/images/variations",
+                "target_base_url": "http://fastfusion-flux-2-dev-svc.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "flux.2-dev",
+                "health_timeout": 180,
+                "request_timeout": 300
+              },
+              {
+                "path": "v1/images/data",
+                "target_base_url": "http://fastfusion-flux-2-dev-svc.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "flux.2-dev",
+                "health_timeout": 180,
+                "request_timeout": 300
+              }
+            ]
+          },
+          "flux.1-kontext": {
+            "endpoints": [
+              {
+                "path": "v1/images/edits",
+                "target_base_url": "http://fastfusion-flux-2-dev-svc.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "flux.2-dev",
+                "health_timeout": 180,
+                "request_timeout": 300
+              },
+              {
+                "path": "v1/images/generations",
+                "target_base_url": "http://fastfusion-flux-2-dev-svc.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "flux.2-dev",
+                "health_timeout": 180,
+                "request_timeout": 300
+              },
+              {
+                "path": "v1/images/data",
+                "target_base_url": "http://fastfusion-flux-2-dev-svc.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "flux.2-dev",
+                "health_timeout": 180,
+                "request_timeout": 300
+              }
+            ]
+          },
+          "flux.2-dev": {
+            "endpoints": [
+              {
+                "path": "v1/images/edits",
+                "target_base_url": "http://fastfusion-flux-2-dev-svc.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "flux.2-dev",
+                "health_timeout": 180,
+                "request_timeout": 300
+              },
+              {
+                "path": "v1/images/generations",
+                "target_base_url": "http://fastfusion-flux-2-dev-svc.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "flux.2-dev",
+                "health_timeout": 180,
+                "request_timeout": 300
+              },
+              {
+                "path": "v1/images/data",
+                "target_base_url": "http://fastfusion-flux-2-dev-svc.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "flux.2-dev",
+                "health_timeout": 180,
+                "request_timeout": 300
+              }
+            ]
+          },
+          "flux.2-klein": {
+            "endpoints": [
+              {
+                "path": "v1/images/edits",
+                "target_base_url": "http://fastfusion-flux-2-klein-svc.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "flux.2-klein",
+                "health_timeout": 180,
+                "request_timeout": 300
+              },
+              {
+                "path": "v1/images/generations",
+                "target_base_url": "http://fastfusion-flux-2-klein-svc.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "flux.2-klein",
+                "health_timeout": 180,
+                "request_timeout": 300
+              },
+              {
+                "path": "v1/images/data",
+                "target_base_url": "http://fastfusion-flux-2-klein-svc.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "flux.2-klein",
+                "health_timeout": 180,
+                "request_timeout": 300
+              }
+            ]
+          },
+          "dall-e-3": {
+            "endpoints": [
+              {
+                "path": "v1/images/edits",
+                "target_base_url": "http://fastfusion-flux-2-dev-svc.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "flux.2-dev",
+                "health_timeout": 180,
+                "request_timeout": 300
+              },
+              {
+                "path": "v1/images/generations",
+                "target_base_url": "http://fastfusion-flux-2-dev-svc.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "flux.2-dev",
+                "health_timeout": 180,
+                "request_timeout": 300
+              },
+              {
+                "path": "v1/images/data",
+                "target_base_url": "http://fastfusion-flux-2-dev-svc.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "flux.2-dev",
+                "health_timeout": 180,
+                "request_timeout": 300
+              }
+            ]
+          },
+          "gpt-image-1": {
+            "endpoints": [
+              {
+                "path": "v1/images/edits",
+                "target_base_url": "http://fastfusion-flux-2-dev-svc.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "flux.2-dev",
+                "health_timeout": 180,
+                "request_timeout": 300
+              },
+              {
+                "path": "v1/images/generations",
+                "target_base_url": "http://fastfusion-flux-2-dev-svc.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "flux.2-dev",
+                "health_timeout": 180,
+                "request_timeout": 300
+              },
+              {
+                "path": "v1/images/data",
+                "target_base_url": "http://fastfusion-flux-2-dev-svc.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "flux.2-dev",
+                "health_timeout": 180,
+                "request_timeout": 300
+              }
+            ]
+          },
+          "whisper-3-large": {
+            "endpoints": [
+              {
+                "path": "v1/audio/transcriptions",
+                "target_base_url": "http://whisper-service.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "whisper-1"
+              },
+              {
+                "path": "v1/audio/translations",
+                "target_base_url": "http://whisper-service.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "whisper-1"
+              }
+            ]
+          },
+          "whisper-1": {
+            "endpoints": [
+              {
+                "path": "v1/audio/transcriptions",
+                "target_base_url": "http://whisper-service.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "whisper-1"
+              },
+              {
+                "path": "v1/audio/translations",
+                "target_base_url": "http://whisper-service.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "whisper-1"
+              }
+            ]
+          },
+          "chatterbox-tts": {
+            "endpoints": [
+              {
+                "path": "v1/audio/speech",
+                "target_base_url": "http://chatterbox-tts.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "chatterbox-tts"
+              }
+            ]
+          },
+          "xtts-v2": {
+            "endpoints": [
+              {
+                "path": "v1/audio/speech",
+                "target_base_url": "http://speech-service.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "tts-1-hd"
+              }
+            ]
+          },
+          "tts-1-hd": {
+            "endpoints": [
+              {
+                "path": "v1/audio/speech",
+                "target_base_url": "http://speech-service.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "tts-1-hd"
+              }
+            ]
+          },
+          "fishaudio-s2-pro": {
+            "endpoints": [
+              {
+                "path": "v1/audio/speech",
+                "target_base_url": "http://fishaudio-s2-pro.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "fishaudio-s2-pro"
+              }
+            ]
+          },
+          "qwen3-embedding-4b": {
+            "endpoints": [
+              {
+                "path": "v1/embeddings",
+                "target_base_url": "http://qwen3-embedding-4b.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "tei"
+              }
+            ]
+          }
+        }
+      }
+    }
+  mylab-internal.json: |
+    {
+      "ml-internal": {
+        "api_key_variable": "OPENAI_MYLAB_INTERNAL_TOKEN",
+        "prefix": "mylab-internal-",
+        "models": {
+          "gpt-4o-mini": {
+            "endpoints": [
+              {
+                "path": "v1/chat/completions",
+                "target_base_url": "https://api.openai.com",
+                "target_model_name": "gpt-4o-mini",
+                "request_timeout": 120
+              }
+            ]
+          },
+          "omni-moderation-latest": {
+            "endpoints": [
+              {
+                "path": "v1/moderations",
+                "target_base_url": "https://api.openai.com",
+                "target_model_name": "omni-moderation-latest"
+              }
+            ]
+          },
+          "text-moderation-latest": {
+            "endpoints": [
+              {
+                "path": "v1/moderations",
+                "target_base_url": "https://api.openai.com",
+                "target_model_name": "text-moderation-latest"
+              }
+            ]
+          }
+        }
+      }
+    }
+  gwdg.json: |
+    {
+      "gwdg-models": {
+        "api_key_variable": "GWDG_API_KEY",
+        "prefix": "",
+        "models": {
+          "gpt-oss-120b": {
+            "endpoints": [
+              {
+                "path": "v1/chat/completions",
+                "target_base_url": "http://gpt-oss-120b.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "gpt-oss-120b"
+              },
+              {
+                "path": "v1/completions",
+                "target_base_url": "http://gpt-oss-120b.mylab-ai-services.svc.cluster.local",
+                "target_model_name": "gpt-oss-120b"
+              }
+            ]
+          }
+        }
+      }
+    }
