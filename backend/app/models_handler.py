@@ -60,7 +60,10 @@ class ModelsHandler:
                             "target_base_url": e["target_base_url"] or p["default_base_url"] or "",
                             "target_model_name": e["target_model_name"],
                             "request_timeout": e["request_timeout"] or p["default_request_timeout"] or 60,
-                            "health_timeout": e["health_timeout"] or p["default_health_timeout"] or 60
+                            "health_timeout": e["health_timeout"] or p["default_health_timeout"] or 60,
+                            "fallback_model_name": e["fallback_model_name"],
+                            "max_upstream_retry_seconds": p["max_upstream_retry_seconds"],
+                            "sync_provider_ratelimits": p["sync_provider_ratelimits"]
                         })
                         
                     self.models[full_model_name] = {

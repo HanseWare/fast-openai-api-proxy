@@ -51,9 +51,26 @@ def _proxy_response_headers(headers: httpx.Headers) -> Dict[str, str]:
     return {key: value for key, value in headers.items() if key.lower() not in HOP_BY_HOP_HEADERS}
 
 
-async def _close_stream_resources(response: httpx.Response, client: httpx.AsyncClient) -> None:
+def _close_stream_resources(response: httpx.Response, client: httpx.AsyncClient) -> None:
+    pass
+
+async def _close_stream_resources_async(response: httpx.Response, client: httpx.AsyncClient) -> None:
     await response.aclose()
     await client.aclose()
+
+def extract_provider_ratelimits(headers: httpx.Headers) -> dict:
+    limits = {}
+    for key, val in headers.items():
+        k = key.lower()
+        if k == 'x-ratelimit-limit-minute': limits['limit_minute'] = int(val)
+        elif k == 'x-ratelimit-remaining-minute': limits['remaining_minute'] = int(val)
+        elif k == 'x-ratelimit-limit-hour': limits['limit_hour'] = int(val)
+        elif k == 'x-ratelimit-remaining-hour': limits['remaining_hour'] = int(val)
+        elif k == 'x-ratelimit-limit-day': limits['limit_day'] = int(val)
+        elif k == 'x-ratelimit-remaining-day': limits['remaining_day'] = int(val)
+        elif k == 'ratelimit-limit': limits['limit_minute'] = int(val)
+        elif k == 'ratelimit-remaining': limits['remaining_minute'] = int(val)
+    return limits
 
 
 def _extract_bearer_token(request: Request) -> Optional[str]:
@@ -103,46 +120,94 @@ async def handle_request(request: Request, api_path: str):
     custom_timeout = httpx.Timeout(max_response_time, connect=max_response_time, read=max_response_time, pool=max_response_time)
 
     client = httpx.AsyncClient(timeout=custom_timeout)
-    if stream:
-        try:
-            upstream_request = client.build_request(
-                "POST",
-                target_url,
-                json=body,
-                headers={"Authorization": f"Bearer {token}"},
-            )
-            upstream_response = await client.send(upstream_request, stream=True)
-        except httpx.RequestError as exc:
+    import asyncio
+
+    async def _try_request(url: str, tkn: str, req_body: dict):
+        if stream:
+            req = client.build_request("POST", url, json=req_body, headers={"Authorization": f"Bearer {tkn}"})
+            return await client.send(req, stream=True)
+        else:
+            return await client.post(url, json=req_body, headers={"Authorization": f"Bearer {tkn}"})
+
+    try:
+        response = await _try_request(target_url, token, body)
+        
+        # 429 Retry logic
+        if response.status_code == 429 and model_data.get('max_upstream_retry_seconds', 0) > 0:
+            retry_after_str = response.headers.get("Retry-After", "1")
+            try: retry_after = int(retry_after_str)
+            except ValueError: retry_after = 1
+            
+            if retry_after <= model_data['max_upstream_retry_seconds']:
+                logger.info(f"Upstream 429 hit. Retrying in {retry_after}s for {model_data['provider']}")
+                if stream:
+                    await response.aread()
+                    await response.aclose()
+                await asyncio.sleep(retry_after)
+                response = await _try_request(target_url, token, body)
+
+        # Fallback Model logic
+        if response.status_code >= 400 and model_data.get('fallback_model_name'):
+            fallback_data = models.get_model_data(model_data['fallback_model_name'], api_path)
+            if fallback_data:
+                logger.info(f"Upstream error {response.status_code}, routing to fallback: {fallback_data['target_model_name']}")
+                if stream:
+                    await response.aread()
+                    await response.aclose()
+                b2 = body.copy()
+                b2['model'] = fallback_data['target_model_name']
+                f_url = fallback_data['target_base_url'] + '/' + api_path
+                f_token = fallback_data.get('api_key', token)
+                response = await _try_request(f_url, f_token, b2)
+
+    except httpx.RequestError as exc:
+        if model_data.get('fallback_model_name'):
+            fallback_data = models.get_model_data(model_data['fallback_model_name'], api_path)
+            if fallback_data:
+                logger.info(f"Upstream request error, routing to fallback: {fallback_data['target_model_name']}")
+                b2 = body.copy()
+                b2['model'] = fallback_data['target_model_name']
+                f_url = fallback_data['target_base_url'] + '/' + api_path
+                f_token = fallback_data.get('api_key', token)
+                try:
+                    response = await _try_request(f_url, f_token, b2)
+                except httpx.RequestError as inner_exc:
+                    await client.aclose()
+                    raise HTTPException(status_code=502, detail=f"Fallback request failed: {inner_exc}") from inner_exc
+            else:
+                await client.aclose()
+                raise HTTPException(status_code=502, detail=f"Upstream request failed: {exc}") from exc
+        else:
             await client.aclose()
             raise HTTPException(status_code=502, detail=f"Upstream request failed: {exc}") from exc
 
-        # For stream requests with upstream errors, return the materialized response payload.
-        if upstream_response.status_code >= 400:
-            await upstream_response.aread()
-            await upstream_response.aclose()
-            await client.aclose()
-            return upstream_response
+    if model_data.get('sync_provider_ratelimits'):
+        limits = extract_provider_ratelimits(response.headers)
+        if limits:
+            from access_store import store
+            store.sync_provider_ratelimits(model_data['provider'], limits)
 
-        stream_content_type = upstream_response.headers.get("Content-Type")
+    if stream:
+        if response.status_code >= 400:
+            await response.aread()
+            await response.aclose()
+            await client.aclose()
+            return response
+
+        stream_content_type = response.headers.get("Content-Type")
         media_type = stream_content_type or "text/event-stream"
-        stream_headers = _proxy_response_headers(upstream_response.headers)
+        stream_headers = _proxy_response_headers(response.headers)
         stream_headers.pop("content-type", None)
 
         return StreamingResponse(
-            upstream_response.aiter_bytes(),
-            status_code=upstream_response.status_code,
+            response.aiter_bytes(),
+            status_code=response.status_code,
             media_type=media_type,
             headers=stream_headers,
-            background=BackgroundTask(_close_stream_resources, upstream_response, client),
+            background=BackgroundTask(_close_stream_resources_async, response, client),
         )
-
     else:
-        # Non-streaming response
-        try:
-            response = await client.post(target_url, json=body, headers={"Authorization": f"Bearer {token}"})
-        except httpx.RequestError as exc:
-            raise HTTPException(status_code=502, detail=f"Upstream request failed: {exc}") from exc
-        await client.aclose()  # Ensure the client is closed after request
+        await client.aclose()
         return response
 
 
@@ -243,6 +308,12 @@ async def handle_subresource_request(
         raise HTTPException(status_code=502, detail=f"Upstream request failed: {exc}") from exc
     finally:
         await client.aclose()
+
+    if model_data.get('sync_provider_ratelimits') and response:
+        limits = extract_provider_ratelimits(response.headers)
+        if limits:
+            from access_store import store
+            store.sync_provider_ratelimits(model_data['provider'], limits)
 
     return response
 

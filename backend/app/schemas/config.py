@@ -4,7 +4,7 @@ from typing import Optional, List
 # Providers
 class ProviderBase(BaseModel):
     name: str = Field(..., min_length=1)
-    api_key_variable: str = Field(..., min_length=1)
+    api_key_variable: Optional[str] = None
     prefix: str = Field(default="")
     default_base_url: Optional[str] = None
     default_request_timeout: Optional[int] = None
@@ -38,6 +38,7 @@ class ProviderModelEndpointBase(BaseModel):
     target_base_url: Optional[str] = None
     request_timeout: Optional[int] = None
     health_timeout: Optional[int] = None
+    fallback_model_name: Optional[str] = None
 
 class ProviderModelEndpointCreate(ProviderModelEndpointBase):
     model_id: str = Field(..., min_length=1)

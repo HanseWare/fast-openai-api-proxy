@@ -41,11 +41,12 @@ class AccessStore:
                 CREATE TABLE IF NOT EXISTS protected_endpoints (
                     id TEXT PRIMARY KEY,
                     path TEXT NOT NULL,
-                    method TEXT NOT NULL
+                    method TEXT NOT NULL,
+                    model_pattern TEXT NOT NULL DEFAULT '*'
                 );
 
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_protected_endpoint_unique
-                    ON protected_endpoints(path, method);
+                    ON protected_endpoints(path, method, model_pattern);
 
                 CREATE TABLE IF NOT EXISTS api_key_quotas (
                     api_key_id TEXT PRIMARY KEY,
@@ -108,11 +109,13 @@ class AccessStore:
                 CREATE TABLE IF NOT EXISTS providers (
                     id TEXT PRIMARY KEY,
                     name TEXT NOT NULL UNIQUE,
-                    api_key_variable TEXT NOT NULL,
+                    api_key_variable TEXT,
                     prefix TEXT NOT NULL DEFAULT '',
                     default_base_url TEXT,
                     default_request_timeout INTEGER,
                     default_health_timeout INTEGER,
+                    max_upstream_retry_seconds INTEGER DEFAULT 0,
+                    sync_provider_ratelimits BOOLEAN DEFAULT 0,
                     created_at INTEGER NOT NULL
                 );
 
@@ -132,6 +135,7 @@ class AccessStore:
                     target_base_url TEXT,
                     request_timeout INTEGER,
                     health_timeout INTEGER,
+                    fallback_model_name TEXT,
                     FOREIGN KEY(model_id) REFERENCES provider_models(id),
                     UNIQUE(model_id, path)
                 );
@@ -141,6 +145,17 @@ class AccessStore:
                     alias_name TEXT NOT NULL UNIQUE,
                     target_model_name TEXT NOT NULL,
                     created_at INTEGER NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS provider_ratelimits (
+                    provider_name TEXT PRIMARY KEY,
+                    limit_minute INTEGER,
+                    remaining_minute INTEGER,
+                    limit_hour INTEGER,
+                    remaining_hour INTEGER,
+                    limit_day INTEGER,
+                    remaining_day INTEGER,
+                    updated_at INTEGER NOT NULL
                 );
                 """
             )
@@ -397,11 +412,11 @@ class AccessStore:
     def list_protected_endpoints(self) -> list[dict]:
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT id, path, method FROM protected_endpoints ORDER BY method, path"
+                "SELECT id, path, method, model_pattern FROM protected_endpoints ORDER BY method, path, model_pattern"
             ).fetchall()
-        return [{"id": row["id"], "path": row["path"], "method": row["method"]} for row in rows]
+        return [{"id": row["id"], "path": row["path"], "method": row["method"], "model_pattern": row.get("model_pattern", "*")} for row in rows]
 
-    def create_protected_endpoint(self, path: str, method: str) -> dict:
+    def create_protected_endpoint(self, path: str, method: str, model_pattern: str = '*') -> dict:
         endpoint_id = str(uuid.uuid4())
         normalized_path = self._normalize_path(path)
         normalized_method = self._normalize_method(method)
@@ -410,13 +425,13 @@ class AccessStore:
             with self._connect() as conn:
                 conn.execute(
                     """
-                    INSERT INTO protected_endpoints (id, path, method)
-                    VALUES (?, ?, ?)
+                    INSERT INTO protected_endpoints (id, path, method, model_pattern)
+                    VALUES (?, ?, ?, ?)
                     """,
-                    (endpoint_id, normalized_path, normalized_method),
+                    (endpoint_id, normalized_path, normalized_method, model_pattern),
                 )
 
-        return {"id": endpoint_id, "path": normalized_path, "method": normalized_method}
+        return {"id": endpoint_id, "path": normalized_path, "method": normalized_method, "model_pattern": model_pattern}
 
     def delete_protected_endpoint(self, endpoint_id: str) -> bool:
         with self._lock:
@@ -427,21 +442,38 @@ class AccessStore:
                 )
                 return cursor.rowcount > 0
 
-    def is_endpoint_protected(self, path: str, method: str) -> bool:
+    def is_endpoint_protected(self, path: str, method: str, model: Optional[str] = None) -> bool:
+        import fnmatch
         normalized_path = self._normalize_path(path)
         normalized_method = self._normalize_method(method)
+        normalized_model = self._normalize_model(model) if model else None
 
         with self._connect() as conn:
-            row = conn.execute(
+            rows = conn.execute(
                 """
-                SELECT 1
+                SELECT path, method, model_pattern
                 FROM protected_endpoints
-                WHERE path = ? AND method = ?
-                LIMIT 1
-                """,
-                (normalized_path, normalized_method),
-            ).fetchone()
-        return row is not None
+                """
+            ).fetchall()
+            
+            for row in rows:
+                p_pattern = row["path"]
+                m_pattern = row["method"]
+                mod_pattern = row.get("model_pattern", "*")
+                
+                path_match = fnmatch.fnmatch(normalized_path, p_pattern) or normalized_path == p_pattern
+                method_match = m_pattern == "*" or m_pattern == normalized_method
+                model_match = True
+                
+                if normalized_model and mod_pattern != "*":
+                    model_match = fnmatch.fnmatch(normalized_model, mod_pattern)
+                elif not normalized_model and mod_pattern != "*":
+                    model_match = False
+                    
+                if path_match and method_match and model_match:
+                    return True
+                    
+        return False
 
     def list_quota_policies(
         self,

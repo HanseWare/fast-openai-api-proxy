@@ -98,7 +98,7 @@ async def list_protected_endpoints(_: None = Depends(require_admin)):
 @router.post("/protected-endpoints", response_model=ProtectedEndpointRuleRead, summary="Create protected endpoint rule")
 async def create_protected_endpoint(rule: ProtectedEndpointRule, _: None = Depends(require_admin)):
     try:
-        return store.create_protected_endpoint(path=rule.path, method=rule.method)
+        return store.create_protected_endpoint(path=rule.path, method=rule.method, model_pattern=rule.model_pattern)
     except sqlite3.IntegrityError as exc:
         raise HTTPException(status_code=409, detail="Protected endpoint already exists") from exc
 

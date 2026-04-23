@@ -66,7 +66,7 @@ class AccessControlMiddleware(BaseHTTPMiddleware):
                 model = None
 
         quota_policy = store.find_quota_policy(api_path=path, model=model) if model else None
-        is_protected = store.is_endpoint_protected(path=path, method=method)
+        is_protected = store.is_endpoint_protected(path=path, method=method, model=model)
 
         if not is_protected and quota_policy is None:
             return await call_next(request)

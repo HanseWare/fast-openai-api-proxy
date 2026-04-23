@@ -72,6 +72,14 @@ async def delete_provider(provider_id: str, _: None = Depends(require_admin)):
 async def list_models(provider_id: str, _: None = Depends(require_admin)):
     return config_store.list_models_for_provider(provider_id)
 
+@router.get("/providers/{provider_id}/ratelimits")
+async def get_provider_ratelimits(provider_id: str, _: None = Depends(require_admin)):
+    provider = config_store.get_provider(provider_id)
+    if not provider:
+        raise HTTPException(status_code=404, detail="Provider not found")
+    from access_store import store
+    return store.get_provider_ratelimits(provider["name"]) or {}
+
 @router.post("/models", response_model=ProviderModelRead)
 async def create_model(payload: ProviderModelCreate, _: None = Depends(require_admin)):
     try:
@@ -103,7 +111,8 @@ async def create_endpoint(payload: ProviderModelEndpointCreate, _: None = Depend
             target_model_name=payload.target_model_name,
             target_base_url=payload.target_base_url,
             request_timeout=payload.request_timeout,
-            health_timeout=payload.health_timeout
+            health_timeout=payload.health_timeout,
+            fallback_model_name=payload.fallback_model_name
         )
         models_handler.refresh()
         return ep
@@ -160,11 +169,13 @@ async def import_config(payload: ImportPayload, _: None = Depends(require_admin)
         if not p:
             p = config_store.create_provider(
                 name=provider_name,
-                api_key_variable=provider_config.get("api_key_variable", ""),
+                api_key_variable=provider_config.get("api_key_variable", None),
                 prefix=provider_config.get("prefix", ""),
                 default_base_url=provider_config.get("target_base_url"),
                 default_request_timeout=provider_config.get("request_timeout"),
-                default_health_timeout=provider_config.get("health_timeout")
+                default_health_timeout=provider_config.get("health_timeout"),
+                max_upstream_retry_seconds=provider_config.get("max_upstream_retry_seconds", 0),
+                sync_provider_ratelimits=provider_config.get("sync_provider_ratelimits", False)
             )
             stats["providers"] += 1
             
@@ -185,7 +196,8 @@ async def import_config(payload: ImportPayload, _: None = Depends(require_admin)
                         target_model_name=ep["target_model_name"],
                         target_base_url=ep.get("target_base_url"),
                         request_timeout=ep.get("request_timeout"),
-                        health_timeout=ep.get("health_timeout")
+                        health_timeout=ep.get("health_timeout"),
+                        fallback_model_name=ep.get("fallback_model_name")
                     )
                     stats["endpoints"] += 1
     

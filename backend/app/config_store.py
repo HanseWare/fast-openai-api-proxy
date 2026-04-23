@@ -32,33 +32,36 @@ class ConfigStore:
             row = conn.execute("SELECT * FROM providers WHERE name = ?", (name,)).fetchone()
         return dict(row) if row else None
 
-    def create_provider(self, name: str, api_key_variable: str, prefix: str = '',
+    def create_provider(self, name: str, api_key_variable: Optional[str] = None, prefix: str = '',
                         default_base_url: Optional[str] = None,
                         default_request_timeout: Optional[int] = None,
-                        default_health_timeout: Optional[int] = None) -> Dict[str, Any]:
+                        default_health_timeout: Optional[int] = None,
+                        max_upstream_retry_seconds: int = 0,
+                        sync_provider_ratelimits: bool = False) -> Dict[str, Any]:
         provider_id = str(uuid.uuid4())
         now = int(time.time())
         with self._lock:
             with self._connect() as conn:
                 conn.execute(
                     """
-                    INSERT INTO providers (id, name, api_key_variable, prefix, default_base_url, default_request_timeout, default_health_timeout, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO providers (id, name, api_key_variable, prefix, default_base_url, default_request_timeout, default_health_timeout, max_upstream_retry_seconds, sync_provider_ratelimits, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (provider_id, name, api_key_variable, prefix, default_base_url, default_request_timeout, default_health_timeout, now)
+                    (provider_id, name, api_key_variable, prefix, default_base_url, default_request_timeout, default_health_timeout, max_upstream_retry_seconds, int(sync_provider_ratelimits), now)
                 )
         return self.get_provider(provider_id)
 
-    def update_provider(self, provider_id: str, name: str, api_key_variable: str, prefix: str,
-                        default_base_url: Optional[str], default_request_timeout: Optional[int], default_health_timeout: Optional[int]) -> Optional[Dict[str, Any]]:
+    def update_provider(self, provider_id: str, name: str, api_key_variable: Optional[str], prefix: str,
+                        default_base_url: Optional[str], default_request_timeout: Optional[int], default_health_timeout: Optional[int],
+                        max_upstream_retry_seconds: int = 0, sync_provider_ratelimits: bool = False) -> Optional[Dict[str, Any]]:
         with self._lock:
             with self._connect() as conn:
                 cursor = conn.execute(
                     """
-                    UPDATE providers SET name=?, api_key_variable=?, prefix=?, default_base_url=?, default_request_timeout=?, default_health_timeout=?
+                    UPDATE providers SET name=?, api_key_variable=?, prefix=?, default_base_url=?, default_request_timeout=?, default_health_timeout=?, max_upstream_retry_seconds=?, sync_provider_ratelimits=?
                     WHERE id=?
                     """,
-                    (name, api_key_variable, prefix, default_base_url, default_request_timeout, default_health_timeout, provider_id)
+                    (name, api_key_variable, prefix, default_base_url, default_request_timeout, default_health_timeout, max_upstream_retry_seconds, int(sync_provider_ratelimits), provider_id)
                 )
                 if cursor.rowcount == 0:
                     return None
@@ -119,16 +122,16 @@ class ConfigStore:
         return dict(row) if row else None
 
     def create_endpoint(self, model_id: str, path: str, target_model_name: str, 
-                        target_base_url: Optional[str] = None, request_timeout: Optional[int] = None, health_timeout: Optional[int] = None) -> Dict[str, Any]:
+                        target_base_url: Optional[str] = None, request_timeout: Optional[int] = None, health_timeout: Optional[int] = None, fallback_model_name: Optional[str] = None) -> Dict[str, Any]:
         endpoint_id = str(uuid.uuid4())
         with self._lock:
             with self._connect() as conn:
                 conn.execute(
                     """
-                    INSERT INTO provider_model_endpoints (id, model_id, path, target_model_name, target_base_url, request_timeout, health_timeout)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO provider_model_endpoints (id, model_id, path, target_model_name, target_base_url, request_timeout, health_timeout, fallback_model_name)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (endpoint_id, model_id, path, target_model_name, target_base_url, request_timeout, health_timeout)
+                    (endpoint_id, model_id, path, target_model_name, target_base_url, request_timeout, health_timeout, fallback_model_name)
                 )
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM provider_model_endpoints WHERE id = ?", (endpoint_id,)).fetchone()

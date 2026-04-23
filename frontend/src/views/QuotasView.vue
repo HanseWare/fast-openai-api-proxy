@@ -11,6 +11,7 @@
     <transition name="slide-up">
       <div v-if="showCreatePolicy" class="glass-panel form-panel">
         <h3>Create Quota Policy</h3>
+        <p class="text-muted" style="margin-bottom: 1rem;">Base policies apply to specific endpoints/models. Enable "Per User?" to track consumption per unique API Key.</p>
         <form @submit.prevent="createPolicy" class="inline-form">
           <div class="input-group">
             <label>API Path</label>
@@ -75,6 +76,7 @@
     <transition name="slide-up">
       <div v-if="showCreateOverride" class="glass-panel form-panel">
         <h3>Create Quota Override</h3>
+        <p class="text-muted" style="margin-bottom: 1rem;">Overrides take precedence over base policies. Use this to grant specific users higher limits or exempt them entirely.</p>
         <form @submit.prevent="createOverride" class="inline-form">
           <div class="input-group">
             <label>API Path</label>

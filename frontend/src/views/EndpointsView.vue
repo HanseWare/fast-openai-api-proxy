@@ -11,6 +11,7 @@
     <transition name="slide-up">
       <div v-if="showCreate" class="glass-panel form-panel">
         <h3>Add Protected Endpoint Rule</h3>
+        <p class="text-muted" style="margin-bottom: 1rem;">Use wildcards (<code>*</code>) for partial matching. E.g., Path <code>v1/chat/*</code> or Model <code>qwen*</code>.</p>
         <form @submit.prevent="createEndpoint" class="inline-form">
           <div class="input-group">
             <label>Path Pattern</label>
@@ -26,6 +27,10 @@
               <option value="*">* (All)</option>
             </select>
           </div>
+          <div class="input-group">
+            <label>Model Pattern</label>
+            <input v-model="newRule.model_pattern" required placeholder="*" />
+          </div>
           <button type="submit" class="btn-primary" :disabled="creating">Add Rule</button>
         </form>
       </div>
@@ -38,6 +43,7 @@
           <tr>
             <th>Path Pattern</th>
             <th>Method</th>
+            <th>Model Pattern</th>
             <th>Rule ID</th>
             <th>Actions</th>
           </tr>
@@ -48,6 +54,7 @@
             <td>
               <span class="badge" :class="ep.method.toLowerCase()">{{ ep.method }}</span>
             </td>
+            <td class="mono" style="color: var(--color-berry-magenta)">{{ ep.model_pattern }}</td>
             <td class="mono text-muted">{{ ep.id }}</td>
             <td>
               <button @click="deleteEndpoint(ep.id)" class="btn-icon delete" title="Delete Rule">🗑️</button>
@@ -72,7 +79,8 @@ const creating = ref(false)
 
 const newRule = ref({
   path: '',
-  method: 'POST'
+  method: 'POST',
+  model_pattern: '*'
 })
 
 async function loadEndpoints() {
@@ -90,10 +98,12 @@ async function createEndpoint() {
       method: 'POST',
       body: JSON.stringify({
         path: newRule.value.path,
-        method: newRule.value.method
+        method: newRule.value.method,
+        model_pattern: newRule.value.model_pattern
       })
     })
     newRule.value.path = ''
+    newRule.value.model_pattern = '*'
     await loadEndpoints()
     showCreate.value = false
   } catch (e) {

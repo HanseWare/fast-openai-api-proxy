@@ -22,7 +22,8 @@ class ApiKeyCreateResponse(ApiKeyRead):
 
 class ProtectedEndpointRule(BaseModel):
     path: str = Field(..., min_length=1)
-    method: str = Field(..., min_length=3, max_length=10)
+    method: str = Field(..., min_length=1, max_length=10)
+    model_pattern: str = Field(default='*')
 
 
 class ProtectedEndpointRuleRead(ProtectedEndpointRule):
