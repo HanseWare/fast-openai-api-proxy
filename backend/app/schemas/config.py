@@ -1,5 +1,5 @@
-from pydantic import BaseModel, Field
-from typing import Optional, List
+from pydantic import BaseModel, Field, ConfigDict
+from typing import Optional, List, Dict
 
 # Providers
 class ProviderBase(BaseModel):
@@ -9,6 +9,7 @@ class ProviderBase(BaseModel):
     default_base_url: Optional[str] = None
     default_request_timeout: Optional[int] = None
     default_health_timeout: Optional[int] = None
+    route_fallbacks: Optional[Dict[str, str]] = Field(default_factory=dict)
 
 class ProviderCreate(ProviderBase):
     pass
@@ -27,6 +28,9 @@ class ProviderModelBase(BaseModel):
 class ProviderModelCreate(ProviderModelBase):
     provider_id: str = Field(..., min_length=1)
 
+class ProviderModelUpdate(ProviderModelBase):
+    pass
+
 class ProviderModelRead(ProviderModelBase):
     id: str
     provider_id: str
@@ -41,9 +45,14 @@ class ProviderModelEndpointBase(BaseModel):
     fallback_model_name: Optional[str] = None
 
 class ProviderModelEndpointCreate(ProviderModelEndpointBase):
+    model_config = ConfigDict(protected_namespaces=())
     model_id: str = Field(..., min_length=1)
 
+class ProviderModelEndpointUpdate(ProviderModelEndpointBase):
+    pass
+
 class ProviderModelEndpointRead(ProviderModelEndpointBase):
+    model_config = ConfigDict(protected_namespaces=())
     id: str
     model_id: str
 

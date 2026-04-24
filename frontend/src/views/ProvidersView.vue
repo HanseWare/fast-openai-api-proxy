@@ -39,6 +39,10 @@
             <input type="checkbox" v-model="newProvider.sync_provider_ratelimits" id="sync_limits" />
             <label for="sync_limits" style="margin: 0;">Sync Provider Ratelimits</label>
           </div>
+          <div class="input-group" style="width: 100%;">
+            <label>Route Fallbacks (JSON format: {"/v1/chat": "gpt-4o-mini"})</label>
+            <input v-model="newProvider.route_fallbacks_str" placeholder="{}" />
+          </div>
           <button type="submit" class="btn-primary" :disabled="creating">Save</button>
         </form>
       </div>
@@ -75,15 +79,22 @@
           </thead>
           <tbody>
             <tr v-for="m in p.models" :key="m.id">
-              <td class="mono">{{ m.name }}</td>
-              <td>
-                <span class="badge" v-for="ep in m.endpoints" :key="ep.id" :title="ep.target_base_url || p.default_base_url">
-                  {{ ep.path }} -> {{ ep.target_model_name }}
-                </span>
-                <button @click="addEndpoint(m.id)" class="btn-text" style="font-size: 0.8rem; margin-left: 0.5rem">+ Add Endpoint</button>
+              <td class="mono">
+                {{ m.name }}
+                <button @click="editModelName(m)" class="btn-icon" style="font-size: 0.8rem; margin-left: 0.5rem" title="Edit Model Name">✏️</button>
               </td>
               <td>
-                <button @click="deleteModel(m.id)" class="btn-icon delete">🗑️</button>
+                <div v-for="ep in m.endpoints" :key="ep.id" class="endpoint-row" @click="openEditEndpoint(ep, m.id)" title="Click to edit">
+                  <span class="ep-path">{{ ep.path }}</span>
+                  <span class="ep-arrow">&rarr;</span>
+                  <span class="ep-target">{{ ep.target_model_name }}</span>
+                  <span class="ep-meta" v-if="ep.fallback_model_name"> | fallback: {{ep.fallback_model_name}}</span>
+                  <span class="ep-meta" v-if="ep.target_base_url"> | url: {{ep.target_base_url}}</span>
+                </div>
+                <button @click="addEndpoint(m.id)" class="btn-text" style="font-size: 0.8rem; margin-top: 0.5rem">+ Add Endpoint</button>
+              </td>
+              <td>
+                <button @click="deleteModel(m.id)" class="btn-icon delete" title="Delete Model">🗑️</button>
               </td>
             </tr>
           </tbody>
@@ -121,6 +132,10 @@
             <input type="checkbox" v-model="editProviderForm.sync_provider_ratelimits" id="edit_sync_limits" />
             <label for="edit_sync_limits" style="margin: 0;">Sync Provider Ratelimits</label>
           </div>
+          <div class="input-group" style="margin-bottom: 1.5rem;">
+            <label>Route Fallbacks (JSON format)</label>
+            <input v-model="editProviderForm.route_fallbacks_str" placeholder="{}" />
+          </div>
           <div style="display: flex; gap: 1rem; justify-content: flex-end;">
             <button type="button" class="btn-secondary" @click="editProviderForm.show = false">Cancel</button>
             <button type="submit" class="btn-primary" :disabled="creating">Update</button>
@@ -133,10 +148,10 @@
       No providers configured in the database. The proxy is currently running in JSON fallback mode.
     </div>
 
-    <!-- Add Endpoint Modal (Overlay) -->
+    <!-- Add/Edit Endpoint Modal (Overlay) -->
     <div v-if="endpointForm.show" class="modal-overlay">
       <div class="glass-panel modal-content">
-        <h3>Add Endpoint</h3>
+        <h3>{{ endpointForm.editMode ? 'Edit Endpoint' : 'Add Endpoint' }}</h3>
         <form @submit.prevent="submitEndpoint">
           <div class="input-group" style="margin-bottom: 1rem;">
             <label>Endpoint Path</label>
@@ -152,13 +167,28 @@
             <label>Target Model Name</label>
             <input v-model="endpointForm.target_model_name" required placeholder="gpt-4o" />
           </div>
+          <div class="input-group" style="margin-bottom: 1rem;">
+            <label>Target Base URL (Overrides Provider)</label>
+            <input v-model="endpointForm.target_base_url" placeholder="https://api.openai.com" />
+          </div>
+          <div class="inline-form" style="margin-bottom: 1.5rem;">
+            <div class="input-group">
+              <label>Req Timeout (s)</label>
+              <input type="number" v-model="endpointForm.request_timeout" placeholder="60" />
+            </div>
+            <div class="input-group">
+              <label>Health Timeout (s)</label>
+              <input type="number" v-model="endpointForm.health_timeout" placeholder="60" />
+            </div>
+          </div>
           <div class="input-group" style="margin-bottom: 1.5rem;">
             <label>Fallback Model Name (Optional)</label>
             <input v-model="endpointForm.fallback_model_name" placeholder="gpt-4o-mini" />
           </div>
           <div style="display: flex; gap: 1rem; justify-content: flex-end;">
+            <button v-if="endpointForm.editMode" type="button" class="btn-icon delete" style="margin-right: auto;" @click="deleteEndpoint(endpointForm.id)">🗑️ Delete</button>
             <button type="button" class="btn-secondary" @click="endpointForm.show = false">Cancel</button>
-            <button type="submit" class="btn-primary" :disabled="creating">Add</button>
+            <button type="submit" class="btn-primary" :disabled="creating">{{ endpointForm.editMode ? 'Update' : 'Add' }}</button>
           </div>
         </form>
       </div>
@@ -174,9 +204,9 @@ const providers = ref([])
 const showCreateProvider = ref(false)
 const creating = ref(false)
 
-const newProvider = ref({ name: '', api_key_variable: '', prefix: '', default_base_url: '', max_upstream_retry_seconds: 0, sync_provider_ratelimits: false })
-const endpointForm = ref({ show: false, modelId: null, path: '', target_model_name: '', fallback_model_name: '' })
-const editProviderForm = ref({ show: false, id: null, name: '', api_key_variable: '', prefix: '', default_base_url: '', max_upstream_retry_seconds: 0, sync_provider_ratelimits: false })
+const newProvider = ref({ name: '', api_key_variable: '', prefix: '', default_base_url: '', max_upstream_retry_seconds: 0, sync_provider_ratelimits: false, route_fallbacks_str: '{}' })
+const endpointForm = ref({ show: false, editMode: false, id: null, modelId: null, path: '', target_model_name: '', fallback_model_name: '', target_base_url: '', request_timeout: null, health_timeout: null })
+const editProviderForm = ref({ show: false, id: null, name: '', api_key_variable: '', prefix: '', default_base_url: '', max_upstream_retry_seconds: 0, sync_provider_ratelimits: false, route_fallbacks_str: '{}' })
 
 async function loadData() {
   try {
@@ -198,7 +228,10 @@ async function createProvider() {
   try {
     await fetchApi('/config/providers', {
       method: 'POST',
-      body: JSON.stringify(newProvider.value)
+      body: JSON.stringify({
+        ...newProvider.value,
+        route_fallbacks: JSON.parse(newProvider.value.route_fallbacks_str || '{}')
+      })
     })
     showCreateProvider.value = false
     await loadData()
@@ -221,7 +254,8 @@ function openEditProvider(p) {
     prefix: p.prefix,
     default_base_url: p.default_base_url,
     max_upstream_retry_seconds: p.max_upstream_retry_seconds || 0,
-    sync_provider_ratelimits: p.sync_provider_ratelimits || false
+    sync_provider_ratelimits: p.sync_provider_ratelimits || false,
+    route_fallbacks_str: p.route_fallbacks ? JSON.stringify(p.route_fallbacks) : '{}'
   }
 }
 
@@ -236,7 +270,8 @@ async function submitEditProvider() {
         prefix: editProviderForm.value.prefix,
         default_base_url: editProviderForm.value.default_base_url,
         max_upstream_retry_seconds: editProviderForm.value.max_upstream_retry_seconds,
-        sync_provider_ratelimits: editProviderForm.value.sync_provider_ratelimits
+        sync_provider_ratelimits: editProviderForm.value.sync_provider_ratelimits,
+        route_fallbacks: JSON.parse(editProviderForm.value.route_fallbacks_str || '{}')
       })
     })
     editProviderForm.value.show = false
@@ -258,6 +293,20 @@ async function addModel(providerId) {
   await loadData()
 }
 
+async function editModelName(model) {
+  const name = prompt("Edit model name:", model.name)
+  if (!name || name === model.name) return
+  try {
+    await fetchApi(`/config/models/${model.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name })
+    })
+    await loadData()
+  } catch (e) {
+    alert('Failed to edit model: ' + e.message)
+  }
+}
+
 async function deleteModel(id) {
   if (!confirm('Delete model and ALL its endpoints?')) return
   await fetchApi(`/config/models/${id}`, { method: 'DELETE' })
@@ -265,25 +314,64 @@ async function deleteModel(id) {
 }
 
 async function addEndpoint(modelId) {
-  endpointForm.value = { show: true, modelId, path: 'v1/chat/completions', target_model_name: '', fallback_model_name: '' }
+  endpointForm.value = { show: true, editMode: false, id: null, modelId, path: 'v1/chat/completions', target_model_name: '', fallback_model_name: '' }
+}
+
+async function openEditEndpoint(ep, modelId) {
+  endpointForm.value = {
+    show: true,
+    editMode: true,
+    id: ep.id,
+    modelId,
+    path: ep.path,
+    target_model_name: ep.target_model_name,
+    fallback_model_name: ep.fallback_model_name || '',
+    target_base_url: ep.target_base_url || '',
+    request_timeout: ep.request_timeout || null,
+    health_timeout: ep.health_timeout || null
+  }
+}
+
+async function deleteEndpoint(id) {
+  if (!confirm('Delete endpoint?')) return
+  await fetchApi(`/config/endpoints/${id}`, { method: 'DELETE' })
+  endpointForm.value.show = false
+  await loadData()
 }
 
 async function submitEndpoint() {
   creating.value = true
   try {
-    await fetchApi('/config/endpoints', {
-      method: 'POST',
-      body: JSON.stringify({
-        model_id: endpointForm.value.modelId,
-        path: endpointForm.value.path,
-        target_model_name: endpointForm.value.target_model_name,
-        fallback_model_name: endpointForm.value.fallback_model_name || null
+    if (endpointForm.value.editMode) {
+      await fetchApi(`/config/endpoints/${endpointForm.value.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          path: endpointForm.value.path,
+          target_model_name: endpointForm.value.target_model_name,
+          fallback_model_name: endpointForm.value.fallback_model_name || null,
+          target_base_url: endpointForm.value.target_base_url || null,
+          request_timeout: endpointForm.value.request_timeout || null,
+          health_timeout: endpointForm.value.health_timeout || null
+        })
       })
-    })
+    } else {
+      await fetchApi('/config/endpoints', {
+        method: 'POST',
+        body: JSON.stringify({
+          model_id: endpointForm.value.modelId,
+          path: endpointForm.value.path,
+          target_model_name: endpointForm.value.target_model_name,
+          fallback_model_name: endpointForm.value.fallback_model_name || null,
+          target_base_url: endpointForm.value.target_base_url || null,
+          request_timeout: endpointForm.value.request_timeout || null,
+          health_timeout: endpointForm.value.health_timeout || null
+        })
+      })
+    }
     endpointForm.value.show = false
     await loadData()
   } catch (e) {
-    alert('Failed to add endpoint: ' + e.message)
+    alert('Failed to save endpoint: ' + e.message)
   } finally {
     creating.value = false
   }
@@ -360,6 +448,42 @@ tbody tr:hover { background: rgba(255, 255, 255, 0.02); }
   font-weight: 600;
 }
 .btn-text:hover { color: var(--color-berry-light); }
+
+.endpoint-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 0.4rem 0.6rem;
+  margin-bottom: 0.3rem;
+  background: rgba(0, 0, 0, 0.15);
+  border: 1px solid var(--glass-border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s;
+  font-size: 0.85rem;
+}
+.endpoint-row:hover {
+  background: rgba(0, 229, 255, 0.05);
+  border-color: rgba(0, 229, 255, 0.3);
+}
+.ep-path {
+  font-family: monospace;
+  color: var(--color-teal-cyan);
+  font-weight: bold;
+}
+.ep-arrow {
+  margin: 0 0.5rem;
+  color: var(--color-text-muted);
+}
+.ep-target {
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+.ep-meta {
+  color: var(--color-text-secondary);
+  font-size: 0.8rem;
+  margin-left: 0.4rem;
+}
 
 .modal-overlay {
   position: fixed;

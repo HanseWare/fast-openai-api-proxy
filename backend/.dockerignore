@@ -1,0 +1,29 @@
+# Virtual environments
+.venv/
+venv/
+env/
+.env
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Database
+app/data/*.db
+app/data/*.sqlite
+app/data/*.sqlite3
+
+# Git
+.git/
+.gitignore
+
+# Testing
+.pytest_cache/
+htmlcov/
+.coverage
+.tox/
+
+# OS generated files
+.DS_Store
+Thumbs.db

@@ -8,8 +8,8 @@ from config_store import config_store
 from models_handler import handler as models_handler
 from schemas.config import (
     ProviderCreate, ProviderRead, ProviderUpdate,
-    ProviderModelCreate, ProviderModelRead,
-    ProviderModelEndpointCreate, ProviderModelEndpointRead,
+    ProviderModelCreate, ProviderModelUpdate, ProviderModelRead,
+    ProviderModelEndpointCreate, ProviderModelEndpointUpdate, ProviderModelEndpointRead,
     ModelAliasCreate, ModelAliasUpdate, ModelAliasRead
 )
 
@@ -96,6 +96,17 @@ async def delete_model(model_id: str, _: None = Depends(require_admin)):
     models_handler.refresh()
     return {"status": "deleted"}
 
+@router.put("/models/{model_id}", response_model=ProviderModelRead)
+async def update_model(model_id: str, payload: ProviderModelUpdate, _: None = Depends(require_admin)):
+    try:
+        updated = config_store.update_model(model_id, payload.name)
+        if not updated:
+            raise HTTPException(status_code=404, detail="Model not found")
+        models_handler.refresh()
+        return updated
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=409, detail="Model name already exists for this provider")
+
 # ---------------- Endpoints ----------------
 
 @router.get("/models/{model_id}/endpoints", response_model=List[ProviderModelEndpointRead])
@@ -125,6 +136,25 @@ async def delete_endpoint(endpoint_id: str, _: None = Depends(require_admin)):
         raise HTTPException(status_code=404, detail="Endpoint not found")
     models_handler.refresh()
     return {"status": "deleted"}
+
+@router.put("/endpoints/{endpoint_id}", response_model=ProviderModelEndpointRead)
+async def update_endpoint(endpoint_id: str, payload: ProviderModelEndpointUpdate, _: None = Depends(require_admin)):
+    try:
+        updated = config_store.update_endpoint(
+            endpoint_id,
+            path=payload.path,
+            target_model_name=payload.target_model_name,
+            target_base_url=payload.target_base_url,
+            request_timeout=payload.request_timeout,
+            health_timeout=payload.health_timeout,
+            fallback_model_name=payload.fallback_model_name
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Endpoint not found")
+        models_handler.refresh()
+        return updated
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=409, detail="Endpoint path already exists for this model")
 
 # ---------------- Aliases (Virtual Models) ----------------
 

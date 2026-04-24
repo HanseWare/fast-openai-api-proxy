@@ -116,6 +116,7 @@ class AccessStore:
                     default_health_timeout INTEGER,
                     max_upstream_retry_seconds INTEGER DEFAULT 0,
                     sync_provider_ratelimits BOOLEAN DEFAULT 0,
+                    route_fallbacks TEXT DEFAULT '{}',
                     created_at INTEGER NOT NULL
                 );
 
@@ -159,6 +160,36 @@ class AccessStore:
                 );
                 """
             )
+
+            try:
+                with conn:
+                    conn.execute("ALTER TABLE protected_endpoints ADD COLUMN model_pattern TEXT NOT NULL DEFAULT '*'")
+            except sqlite3.OperationalError:
+                pass
+            
+            try:
+                with conn:
+                    conn.execute("ALTER TABLE providers ADD COLUMN max_upstream_retry_seconds INTEGER DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass
+
+            try:
+                with conn:
+                    conn.execute("ALTER TABLE providers ADD COLUMN sync_provider_ratelimits BOOLEAN DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass
+
+            try:
+                with conn:
+                    conn.execute("ALTER TABLE provider_model_endpoints ADD COLUMN fallback_model_name TEXT")
+            except sqlite3.OperationalError:
+                pass
+            
+            try:
+                with conn:
+                    conn.execute("ALTER TABLE providers ADD COLUMN route_fallbacks TEXT DEFAULT '{}'")
+            except sqlite3.OperationalError:
+                pass
 
     @staticmethod
     def _hash_secret(secret: str) -> str:

@@ -15,11 +15,22 @@
         <form @submit.prevent="createPolicy" class="inline-form">
           <div class="input-group">
             <label>API Path</label>
-            <input v-model="newPolicy.api_path" required placeholder="/v1/chat/completions" />
+            <input list="quota-api-paths" v-model="newPolicy.api_path" required placeholder="/v1/chat/completions" />
+            <datalist id="quota-api-paths">
+              <option value="v1/chat/completions"></option>
+              <option value="v1/completions"></option>
+              <option value="v1/embeddings"></option>
+              <option value="v1/images/generations"></option>
+              <option value="*"></option>
+            </datalist>
           </div>
           <div class="input-group">
             <label>Model (or *)</label>
-            <input v-model="newPolicy.model" required placeholder="gpt-4" />
+            <input list="quota-models" v-model="newPolicy.model" required placeholder="gpt-4" />
+            <datalist id="quota-models">
+              <option value="*"></option>
+              <option v-for="m in availableModels" :key="m" :value="m"></option>
+            </datalist>
           </div>
           <div class="input-group">
             <label>Window</label>
@@ -32,6 +43,10 @@
           <div class="input-group">
             <label>Limit</label>
             <input type="number" v-model="newPolicy.request_limit" required min="1" />
+          </div>
+          <div class="input-group" style="flex-direction: row; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+            <input type="checkbox" v-model="newPolicy.enforce_per_user" id="enforce_per_user" />
+            <label for="enforce_per_user" style="margin: 0;">Per User?</label>
           </div>
           <button type="submit" class="btn-primary" :disabled="creating">Save</button>
         </form>
@@ -80,11 +95,11 @@
         <form @submit.prevent="createOverride" class="inline-form">
           <div class="input-group">
             <label>API Path</label>
-            <input v-model="newOverride.api_path" required placeholder="/v1/chat/completions" />
+            <input list="quota-api-paths" v-model="newOverride.api_path" required placeholder="/v1/chat/completions" />
           </div>
           <div class="input-group">
             <label>Model</label>
-            <input v-model="newOverride.model" required placeholder="*" />
+            <input list="quota-models" v-model="newOverride.model" required placeholder="*" />
           </div>
           <div class="input-group">
             <label>Owner ID</label>
@@ -151,14 +166,24 @@ const overrides = ref([])
 const showCreatePolicy = ref(false)
 const showCreateOverride = ref(false)
 const creating = ref(false)
+const availableModels = ref([])
 
-const newPolicy = ref({ api_path: '', model: '*', window_type: 'minute', request_limit: 10 })
-const newOverride = ref({ api_path: '', model: '*', owner_id: '', window_type: 'minute', request_limit: 100 })
+const newPolicy = ref({ api_path: 'v1/chat/completions', model: '*', window_type: 'minute', request_limit: 10, enforce_per_user: true })
+const newOverride = ref({ api_path: 'v1/chat/completions', model: '*', owner_id: '', window_type: 'minute', request_limit: 100 })
 
 async function loadData() {
   try {
     policies.value = await fetchApi('/quota-policies')
     overrides.value = await fetchApi('/quota-overrides')
+    
+    // Fetch unique model names from config API for datalist
+    const provs = await fetchApi('/config/providers')
+    const modelsSet = new Set()
+    for (let p of provs) {
+      const models = await fetchApi(`/config/providers/${p.id}/models`)
+      for (let m of models) modelsSet.add(m.name)
+    }
+    availableModels.value = Array.from(modelsSet)
   } catch (e) {
     alert('Failed to load quotas: ' + e.message)
   }

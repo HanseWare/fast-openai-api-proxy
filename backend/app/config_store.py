@@ -20,48 +20,89 @@ class ConfigStore:
     def list_providers(self) -> List[Dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute("SELECT * FROM providers ORDER BY created_at DESC").fetchall()
-        return [dict(row) for row in rows]
+        
+        result = []
+        for row in rows:
+            d = dict(row)
+            if 'route_fallbacks' in d and isinstance(d['route_fallbacks'], str):
+                import json
+                try:
+                    d['route_fallbacks'] = json.loads(d['route_fallbacks'])
+                except:
+                    d['route_fallbacks'] = {}
+            result.append(d)
+        return result
 
     def get_provider(self, provider_id: str) -> Optional[Dict[str, Any]]:
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM providers WHERE id = ?", (provider_id,)).fetchone()
-        return dict(row) if row else None
+        if not row: return None
+        d = dict(row)
+        if 'route_fallbacks' in d and isinstance(d['route_fallbacks'], str):
+            import json
+            try:
+                d['route_fallbacks'] = json.loads(d['route_fallbacks'])
+            except:
+                d['route_fallbacks'] = {}
+        return d
         
     def get_provider_by_name(self, name: str) -> Optional[Dict[str, Any]]:
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM providers WHERE name = ?", (name,)).fetchone()
-        return dict(row) if row else None
+        if not row: return None
+        d = dict(row)
+        if 'route_fallbacks' in d and isinstance(d['route_fallbacks'], str):
+            import json
+            try:
+                d['route_fallbacks'] = json.loads(d['route_fallbacks'])
+            except:
+                d['route_fallbacks'] = {}
+        return d
 
     def create_provider(self, name: str, api_key_variable: Optional[str] = None, prefix: str = '',
                         default_base_url: Optional[str] = None,
                         default_request_timeout: Optional[int] = None,
                         default_health_timeout: Optional[int] = None,
                         max_upstream_retry_seconds: int = 0,
-                        sync_provider_ratelimits: bool = False) -> Dict[str, Any]:
+                        sync_provider_ratelimits: bool = False,
+                        route_fallbacks: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
         provider_id = str(uuid.uuid4())
         now = int(time.time())
+        import json
+        rf_str = json.dumps(route_fallbacks) if route_fallbacks else '{}'
+        
+        # Ensure api_key_variable is never NULL in the DB, to prevent IntegrityError
+        # on older schemas where it might have been NOT NULL.
+        safe_api_key_var = api_key_variable if api_key_variable is not None else ""
+
         with self._lock:
             with self._connect() as conn:
                 conn.execute(
                     """
-                    INSERT INTO providers (id, name, api_key_variable, prefix, default_base_url, default_request_timeout, default_health_timeout, max_upstream_retry_seconds, sync_provider_ratelimits, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO providers (id, name, api_key_variable, prefix, default_base_url, default_request_timeout, default_health_timeout, max_upstream_retry_seconds, sync_provider_ratelimits, route_fallbacks, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (provider_id, name, api_key_variable, prefix, default_base_url, default_request_timeout, default_health_timeout, max_upstream_retry_seconds, int(sync_provider_ratelimits), now)
+                    (provider_id, name, safe_api_key_var, prefix, default_base_url, default_request_timeout, default_health_timeout, max_upstream_retry_seconds, int(sync_provider_ratelimits), rf_str, now)
                 )
         return self.get_provider(provider_id)
 
     def update_provider(self, provider_id: str, name: str, api_key_variable: Optional[str], prefix: str,
                         default_base_url: Optional[str], default_request_timeout: Optional[int], default_health_timeout: Optional[int],
-                        max_upstream_retry_seconds: int = 0, sync_provider_ratelimits: bool = False) -> Optional[Dict[str, Any]]:
+                        max_upstream_retry_seconds: int = 0, sync_provider_ratelimits: bool = False,
+                        route_fallbacks: Optional[Dict[str, str]] = None) -> Optional[Dict[str, Any]]:
+        import json
+        rf_str = json.dumps(route_fallbacks) if route_fallbacks is not None else '{}'
+        
+        safe_api_key_var = api_key_variable if api_key_variable is not None else ""
+
         with self._lock:
             with self._connect() as conn:
                 cursor = conn.execute(
                     """
-                    UPDATE providers SET name=?, api_key_variable=?, prefix=?, default_base_url=?, default_request_timeout=?, default_health_timeout=?, max_upstream_retry_seconds=?, sync_provider_ratelimits=?
+                    UPDATE providers SET name=?, api_key_variable=?, prefix=?, default_base_url=?, default_request_timeout=?, default_health_timeout=?, max_upstream_retry_seconds=?, sync_provider_ratelimits=?, route_fallbacks=?
                     WHERE id=?
                     """,
-                    (name, api_key_variable, prefix, default_base_url, default_request_timeout, default_health_timeout, max_upstream_retry_seconds, int(sync_provider_ratelimits), provider_id)
+                    (name, safe_api_key_var, prefix, default_base_url, default_request_timeout, default_health_timeout, max_upstream_retry_seconds, int(sync_provider_ratelimits), rf_str, provider_id)
                 )
                 if cursor.rowcount == 0:
                     return None
@@ -102,6 +143,16 @@ class ConfigStore:
             row = conn.execute("SELECT * FROM provider_models WHERE id = ?", (model_id,)).fetchone()
         return dict(row)
 
+    def update_model(self, model_id: str, name: str) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            with self._connect() as conn:
+                cursor = conn.execute("UPDATE provider_models SET name = ? WHERE id = ?", (name, model_id))
+                if cursor.rowcount == 0:
+                    return None
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM provider_models WHERE id = ?", (model_id,)).fetchone()
+        return dict(row)
+
     def delete_model(self, model_id: str) -> bool:
         with self._lock:
             with self._connect() as conn:
@@ -133,6 +184,23 @@ class ConfigStore:
                     """,
                     (endpoint_id, model_id, path, target_model_name, target_base_url, request_timeout, health_timeout, fallback_model_name)
                 )
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM provider_model_endpoints WHERE id = ?", (endpoint_id,)).fetchone()
+        return dict(row)
+
+    def update_endpoint(self, endpoint_id: str, path: str, target_model_name: str, 
+                        target_base_url: Optional[str] = None, request_timeout: Optional[int] = None, health_timeout: Optional[int] = None, fallback_model_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            with self._connect() as conn:
+                cursor = conn.execute(
+                    """
+                    UPDATE provider_model_endpoints SET path=?, target_model_name=?, target_base_url=?, request_timeout=?, health_timeout=?, fallback_model_name=?
+                    WHERE id=?
+                    """,
+                    (path, target_model_name, target_base_url, request_timeout, health_timeout, fallback_model_name, endpoint_id)
+                )
+                if cursor.rowcount == 0:
+                    return None
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM provider_model_endpoints WHERE id = ?", (endpoint_id,)).fetchone()
         return dict(row)

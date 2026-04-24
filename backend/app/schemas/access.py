@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class ApiKeyCreate(BaseModel):
@@ -21,6 +21,7 @@ class ApiKeyCreateResponse(ApiKeyRead):
 
 
 class ProtectedEndpointRule(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
     path: str = Field(..., min_length=1)
     method: str = Field(..., min_length=1, max_length=10)
     model_pattern: str = Field(default='*')
