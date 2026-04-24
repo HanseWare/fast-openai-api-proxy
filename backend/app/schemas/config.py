@@ -9,6 +9,8 @@ class ProviderBase(BaseModel):
     default_base_url: Optional[str] = None
     default_request_timeout: Optional[int] = None
     default_health_timeout: Optional[int] = None
+    max_upstream_retry_seconds: Optional[int] = Field(default=0)
+    sync_provider_ratelimits: Optional[bool] = Field(default=False)
     route_fallbacks: Optional[Dict[str, str]] = Field(default_factory=dict)
 
 class ProviderCreate(ProviderBase):
@@ -24,6 +26,8 @@ class ProviderRead(ProviderBase):
 # Models
 class ProviderModelBase(BaseModel):
     name: str = Field(..., min_length=1)
+    owned_by: Optional[str] = Field(default='FOAP')
+    hide_on_models_endpoint: Optional[bool] = Field(default=False)
 
 class ProviderModelCreate(ProviderModelBase):
     provider_id: str = Field(..., min_length=1)
@@ -60,6 +64,8 @@ class ProviderModelEndpointRead(ProviderModelEndpointBase):
 class ModelAliasBase(BaseModel):
     alias_name: str = Field(..., min_length=1)
     target_model_name: str = Field(..., min_length=1)
+    owned_by: Optional[str] = Field(default='FOAP')
+    hide_on_models_endpoint: Optional[bool] = Field(default=False)
 
 class ModelAliasCreate(ModelAliasBase):
     pass

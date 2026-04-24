@@ -19,7 +19,11 @@ class ModelsHandler:
         # 1. Load Aliases
         aliases_db = config_store.list_aliases()
         for a in aliases_db:
-            self.aliases[a["alias_name"]] = a["target_model_name"]
+            self.aliases[a["alias_name"]] = {
+                "target": a["target_model_name"],
+                "owned_by": a.get("owned_by") or "FOAP",
+                "hide_on_models_endpoint": bool(a.get("hide_on_models_endpoint", 0))
+            }
             
         # 2. Load Providers
         providers = config_store.list_providers()
@@ -89,7 +93,9 @@ class ModelsHandler:
                     
                 self.models[full_model_name] = {
                     "model_info": {"endpoints": eps},
-                    "endpoints": eps
+                    "endpoints": eps,
+                    "owned_by": m.get("owned_by") or "FOAP",
+                    "hide_on_models_endpoint": bool(m.get("hide_on_models_endpoint", 0))
                 }
 
     def _seed_db_from_json(self, config: Dict[str, Any]):
@@ -129,7 +135,10 @@ class ModelsHandler:
                         )
 
     def get_model_data(self, model, api_path=None):
-        resolved_model = self.aliases.get(model, model)
+        resolved_model = model
+        alias_info = self.aliases.get(model)
+        if alias_info:
+            resolved_model = alias_info["target"]
         
         model_entry = self.models.get(resolved_model)
         if not model_entry:
@@ -142,25 +151,56 @@ class ModelsHandler:
         raise HTTPException(status_code=404, detail=f"API path {api_path} not supported for model {model}")
 
     def get_model(self, model):
-        resolved_model = self.aliases.get(model, model)
+        alias_info = self.aliases.get(model)
+        if alias_info:
+            resolved_model = alias_info["target"]
+        else:
+            resolved_model = model
+        
         if resolved_model not in self.models:
             return None
+        
+        # Determine owned_by: alias override > model DB value > default
+        if alias_info:
+            owned_by = alias_info.get("owned_by") or "FOAP"
+        else:
+            owned_by = self.models[resolved_model].get("owned_by") or "FOAP"
+        
         return {
             "id": model,
             "object": "model",
             "created": 1714780800,
-            "owned_by": "FOAP"
+            "owned_by": owned_by
         }
 
     def get_model_list(self):
-        return [
-            {
-                "id": model,
+        result = []
+        
+        # Real models
+        for model_name, model_data in self.models.items():
+            if model_data.get("hide_on_models_endpoint"):
+                continue
+            result.append({
+                "id": model_name,
                 "object": "model",
                 "created": 1714780800,
-                "owned_by": "FOAP"
-            } for model in self.models.keys()
-        ]
+                "owned_by": model_data.get("owned_by") or "FOAP"
+            })
+        
+        # Virtual models (aliases)
+        for alias_name, alias_info in self.aliases.items():
+            if alias_info.get("hide_on_models_endpoint"):
+                continue
+            # Only include if the target model actually exists
+            if alias_info["target"] in self.models:
+                result.append({
+                    "id": alias_name,
+                    "object": "model",
+                    "created": 1714780800,
+                    "owned_by": alias_info.get("owned_by") or "FOAP"
+                })
+        
+        return result
 
 
 handler = ModelsHandler()

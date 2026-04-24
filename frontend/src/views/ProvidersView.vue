@@ -73,6 +73,8 @@
           <thead>
             <tr>
               <th>Model Name</th>
+              <th>Owned By</th>
+              <th>Hidden</th>
               <th>Endpoints</th>
               <th>Actions</th>
             </tr>
@@ -81,8 +83,9 @@
             <tr v-for="m in p.models" :key="m.id">
               <td class="mono">
                 {{ m.name }}
-                <button @click="editModelName(m)" class="btn-icon" style="font-size: 0.8rem; margin-left: 0.5rem" title="Edit Model Name">✏️</button>
               </td>
+              <td>{{ m.owned_by || 'FOAP' }}</td>
+              <td>{{ m.hide_on_models_endpoint ? '🚫' : '—' }}</td>
               <td>
                 <div v-for="ep in m.endpoints" :key="ep.id" class="endpoint-row" @click="openEditEndpoint(ep, m.id)" title="Click to edit">
                   <span class="ep-path">{{ ep.path }}</span>
@@ -94,6 +97,7 @@
                 <button @click="addEndpoint(m.id)" class="btn-text" style="font-size: 0.8rem; margin-top: 0.5rem">+ Add Endpoint</button>
               </td>
               <td>
+                <button @click="openEditModel(m)" class="btn-icon" title="Edit Model">✏️</button>
                 <button @click="deleteModel(m.id)" class="btn-icon delete" title="Delete Model">🗑️</button>
               </td>
             </tr>
@@ -146,6 +150,30 @@
     
     <div v-if="providers.length === 0" class="empty-state">
       No providers configured in the database. The proxy is currently running in JSON fallback mode.
+    </div>
+    <!-- Edit Model Modal -->
+    <div v-if="modelForm.show" class="modal-overlay">
+      <div class="glass-panel modal-content">
+        <h3>Edit Model</h3>
+        <form @submit.prevent="submitEditModel">
+          <div class="input-group" style="margin-bottom: 1rem;">
+            <label>Model Name</label>
+            <input v-model="modelForm.name" required />
+          </div>
+          <div class="input-group" style="margin-bottom: 1rem;">
+            <label>Owned By</label>
+            <input v-model="modelForm.owned_by" placeholder="FOAP" />
+          </div>
+          <div class="input-group" style="flex-direction: row; align-items: center; gap: 0.5rem; margin-bottom: 1.5rem;">
+            <input type="checkbox" v-model="modelForm.hide_on_models_endpoint" id="edit_model_hide" />
+            <label for="edit_model_hide" style="margin: 0;">Hide on /v1/models</label>
+          </div>
+          <div style="display: flex; gap: 1rem; justify-content: flex-end;">
+            <button type="button" class="btn-secondary" @click="modelForm.show = false">Cancel</button>
+            <button type="submit" class="btn-primary" :disabled="creating">Update</button>
+          </div>
+        </form>
+      </div>
     </div>
 
     <!-- Add/Edit Endpoint Modal (Overlay) -->
@@ -207,6 +235,7 @@ const creating = ref(false)
 const newProvider = ref({ name: '', api_key_variable: '', prefix: '', default_base_url: '', max_upstream_retry_seconds: 0, sync_provider_ratelimits: false, route_fallbacks_str: '{}' })
 const endpointForm = ref({ show: false, editMode: false, id: null, modelId: null, path: '', target_model_name: '', fallback_model_name: '', target_base_url: '', request_timeout: null, health_timeout: null })
 const editProviderForm = ref({ show: false, id: null, name: '', api_key_variable: '', prefix: '', default_base_url: '', max_upstream_retry_seconds: 0, sync_provider_ratelimits: false, route_fallbacks_str: '{}' })
+const modelForm = ref({ show: false, id: null, name: '', owned_by: 'FOAP', hide_on_models_endpoint: false })
 
 async function loadData() {
   try {
@@ -288,22 +317,38 @@ async function addModel(providerId) {
   if (!name) return
   await fetchApi('/config/models', {
     method: 'POST',
-    body: JSON.stringify({ provider_id: providerId, name })
+    body: JSON.stringify({ provider_id: providerId, name, owned_by: 'FOAP', hide_on_models_endpoint: false })
   })
   await loadData()
 }
 
-async function editModelName(model) {
-  const name = prompt("Edit model name:", model.name)
-  if (!name || name === model.name) return
+function openEditModel(model) {
+  modelForm.value = {
+    show: true,
+    id: model.id,
+    name: model.name,
+    owned_by: model.owned_by || 'FOAP',
+    hide_on_models_endpoint: !!model.hide_on_models_endpoint
+  }
+}
+
+async function submitEditModel() {
+  creating.value = true
   try {
-    await fetchApi(`/config/models/${model.id}`, {
+    await fetchApi(`/config/models/${modelForm.value.id}`, {
       method: 'PUT',
-      body: JSON.stringify({ name })
+      body: JSON.stringify({
+        name: modelForm.value.name,
+        owned_by: modelForm.value.owned_by,
+        hide_on_models_endpoint: modelForm.value.hide_on_models_endpoint
+      })
     })
+    modelForm.value.show = false
     await loadData()
   } catch (e) {
-    alert('Failed to edit model: ' + e.message)
+    alert('Failed to update model: ' + e.message)
+  } finally {
+    creating.value = false
   }
 }
 

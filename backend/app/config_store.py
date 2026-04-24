@@ -131,22 +131,25 @@ class ConfigStore:
             row = conn.execute("SELECT * FROM provider_models WHERE provider_id = ? AND name = ?", (provider_id, name)).fetchone()
         return dict(row) if row else None
 
-    def create_model(self, provider_id: str, name: str) -> Dict[str, Any]:
+    def create_model(self, provider_id: str, name: str, owned_by: str = 'FOAP', hide_on_models_endpoint: bool = False) -> Dict[str, Any]:
         model_id = str(uuid.uuid4())
         with self._lock:
             with self._connect() as conn:
                 conn.execute(
-                    "INSERT INTO provider_models (id, provider_id, name) VALUES (?, ?, ?)",
-                    (model_id, provider_id, name)
+                    "INSERT INTO provider_models (id, provider_id, name, owned_by, hide_on_models_endpoint) VALUES (?, ?, ?, ?, ?)",
+                    (model_id, provider_id, name, owned_by or 'FOAP', int(hide_on_models_endpoint))
                 )
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM provider_models WHERE id = ?", (model_id,)).fetchone()
         return dict(row)
 
-    def update_model(self, model_id: str, name: str) -> Optional[Dict[str, Any]]:
+    def update_model(self, model_id: str, name: str, owned_by: Optional[str] = None, hide_on_models_endpoint: Optional[bool] = None) -> Optional[Dict[str, Any]]:
         with self._lock:
             with self._connect() as conn:
-                cursor = conn.execute("UPDATE provider_models SET name = ? WHERE id = ?", (name, model_id))
+                cursor = conn.execute(
+                    "UPDATE provider_models SET name = ?, owned_by = COALESCE(?, owned_by), hide_on_models_endpoint = COALESCE(?, hide_on_models_endpoint) WHERE id = ?",
+                    (name, owned_by, int(hide_on_models_endpoint) if hide_on_models_endpoint is not None else None, model_id)
+                )
                 if cursor.rowcount == 0:
                     return None
         with self._connect() as conn:
@@ -223,25 +226,25 @@ class ConfigStore:
             row = conn.execute("SELECT * FROM model_aliases WHERE alias_name = ?", (alias_name,)).fetchone()
         return dict(row) if row else None
 
-    def create_alias(self, alias_name: str, target_model_name: str) -> Dict[str, Any]:
+    def create_alias(self, alias_name: str, target_model_name: str, owned_by: str = 'FOAP', hide_on_models_endpoint: bool = False) -> Dict[str, Any]:
         alias_id = str(uuid.uuid4())
         now = int(time.time())
         with self._lock:
             with self._connect() as conn:
                 conn.execute(
-                    "INSERT INTO model_aliases (id, alias_name, target_model_name, created_at) VALUES (?, ?, ?, ?)",
-                    (alias_id, alias_name, target_model_name, now)
+                    "INSERT INTO model_aliases (id, alias_name, target_model_name, owned_by, hide_on_models_endpoint, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                    (alias_id, alias_name, target_model_name, owned_by or 'FOAP', int(hide_on_models_endpoint), now)
                 )
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM model_aliases WHERE id = ?", (alias_id,)).fetchone()
         return dict(row)
 
-    def update_alias(self, alias_id: str, alias_name: str, target_model_name: str) -> Optional[Dict[str, Any]]:
+    def update_alias(self, alias_id: str, alias_name: str, target_model_name: str, owned_by: Optional[str] = None, hide_on_models_endpoint: Optional[bool] = None) -> Optional[Dict[str, Any]]:
         with self._lock:
             with self._connect() as conn:
                 cursor = conn.execute(
-                    "UPDATE model_aliases SET alias_name = ?, target_model_name = ? WHERE id = ?",
-                    (alias_name, target_model_name, alias_id)
+                    "UPDATE model_aliases SET alias_name = ?, target_model_name = ?, owned_by = COALESCE(?, owned_by), hide_on_models_endpoint = COALESCE(?, hide_on_models_endpoint) WHERE id = ?",
+                    (alias_name, target_model_name, owned_by, int(hide_on_models_endpoint) if hide_on_models_endpoint is not None else None, alias_id)
                 )
                 if cursor.rowcount == 0:
                     return None

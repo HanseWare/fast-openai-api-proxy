@@ -83,7 +83,12 @@ async def get_provider_ratelimits(provider_id: str, _: None = Depends(require_ad
 @router.post("/models", response_model=ProviderModelRead)
 async def create_model(payload: ProviderModelCreate, _: None = Depends(require_admin)):
     try:
-        model = config_store.create_model(payload.provider_id, payload.name)
+        model = config_store.create_model(
+            provider_id=payload.provider_id,
+            name=payload.name,
+            owned_by=payload.owned_by or 'FOAP',
+            hide_on_models_endpoint=payload.hide_on_models_endpoint or False
+        )
         models_handler.refresh()
         return model
     except sqlite3.IntegrityError:
@@ -99,7 +104,12 @@ async def delete_model(model_id: str, _: None = Depends(require_admin)):
 @router.put("/models/{model_id}", response_model=ProviderModelRead)
 async def update_model(model_id: str, payload: ProviderModelUpdate, _: None = Depends(require_admin)):
     try:
-        updated = config_store.update_model(model_id, payload.name)
+        updated = config_store.update_model(
+            model_id=model_id,
+            name=payload.name,
+            owned_by=payload.owned_by,
+            hide_on_models_endpoint=payload.hide_on_models_endpoint
+        )
         if not updated:
             raise HTTPException(status_code=404, detail="Model not found")
         models_handler.refresh()
@@ -165,7 +175,12 @@ async def list_aliases(_: None = Depends(require_admin)):
 @router.post("/aliases", response_model=ModelAliasRead)
 async def create_alias(payload: ModelAliasCreate, _: None = Depends(require_admin)):
     try:
-        alias = config_store.create_alias(payload.alias_name, payload.target_model_name)
+        alias = config_store.create_alias(
+            alias_name=payload.alias_name,
+            target_model_name=payload.target_model_name,
+            owned_by=payload.owned_by or 'FOAP',
+            hide_on_models_endpoint=payload.hide_on_models_endpoint or False
+        )
         models_handler.refresh()
         return alias
     except sqlite3.IntegrityError:
@@ -174,7 +189,13 @@ async def create_alias(payload: ModelAliasCreate, _: None = Depends(require_admi
 @router.put("/aliases/{alias_id}", response_model=ModelAliasRead)
 async def update_alias(alias_id: str, payload: ModelAliasUpdate, _: None = Depends(require_admin)):
     try:
-        updated = config_store.update_alias(alias_id, payload.alias_name, payload.target_model_name)
+        updated = config_store.update_alias(
+            alias_id=alias_id,
+            alias_name=payload.alias_name,
+            target_model_name=payload.target_model_name,
+            owned_by=payload.owned_by,
+            hide_on_models_endpoint=payload.hide_on_models_endpoint
+        )
         if not updated:
             raise HTTPException(status_code=404, detail="Alias not found")
         models_handler.refresh()

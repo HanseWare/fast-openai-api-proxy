@@ -124,6 +124,8 @@ class AccessStore:
                     id TEXT PRIMARY KEY,
                     provider_id TEXT NOT NULL,
                     name TEXT NOT NULL,
+                    owned_by TEXT DEFAULT 'FOAP',
+                    hide_on_models_endpoint BOOLEAN DEFAULT 0,
                     FOREIGN KEY(provider_id) REFERENCES providers(id),
                     UNIQUE(provider_id, name)
                 );
@@ -145,6 +147,8 @@ class AccessStore:
                     id TEXT PRIMARY KEY,
                     alias_name TEXT NOT NULL UNIQUE,
                     target_model_name TEXT NOT NULL,
+                    owned_by TEXT DEFAULT 'FOAP',
+                    hide_on_models_endpoint BOOLEAN DEFAULT 0,
                     created_at INTEGER NOT NULL
                 );
 
@@ -188,6 +192,30 @@ class AccessStore:
             try:
                 with conn:
                     conn.execute("ALTER TABLE providers ADD COLUMN route_fallbacks TEXT DEFAULT '{}'")
+            except sqlite3.OperationalError:
+                pass
+
+            # provider_models: owned_by + hide_on_models_endpoint
+            try:
+                with conn:
+                    conn.execute("ALTER TABLE provider_models ADD COLUMN owned_by TEXT DEFAULT 'FOAP'")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                with conn:
+                    conn.execute("ALTER TABLE provider_models ADD COLUMN hide_on_models_endpoint BOOLEAN DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass
+
+            # model_aliases: owned_by + hide_on_models_endpoint
+            try:
+                with conn:
+                    conn.execute("ALTER TABLE model_aliases ADD COLUMN owned_by TEXT DEFAULT 'FOAP'")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                with conn:
+                    conn.execute("ALTER TABLE model_aliases ADD COLUMN hide_on_models_endpoint BOOLEAN DEFAULT 0")
             except sqlite3.OperationalError:
                 pass
 
