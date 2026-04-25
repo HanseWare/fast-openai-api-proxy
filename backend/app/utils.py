@@ -7,6 +7,7 @@ from fastapi import Request, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse, JSONResponse, Response
 from starlette.background import BackgroundTask
 
+from access_store import store
 from auth import can_request
 from models_handler import handler as models
 
@@ -73,6 +74,23 @@ def extract_provider_ratelimits(headers: httpx.Headers) -> dict:
     return limits
 
 
+def _raise_if_provider_rate_limited(model_data: Dict[str, Any]) -> None:
+    if not model_data.get('sync_provider_ratelimits'):
+        return
+
+    provider_name = model_data.get('provider')
+    if not provider_name:
+        return
+
+    exhausted_windows = store.get_exhausted_provider_ratelimit_windows(provider_name)
+    if exhausted_windows:
+        windows = ", ".join(exhausted_windows)
+        raise HTTPException(
+            status_code=429,
+            detail=f"Upstream provider rate limit exhausted for {provider_name} ({windows})",
+        )
+
+
 def _extract_bearer_token(request: Request) -> Optional[str]:
     auth_header = request.headers.get("Authorization")
     if not auth_header or "Bearer " not in auth_header:
@@ -111,6 +129,8 @@ async def handle_request(request: Request, api_path: str):
 
     # Add the API key for external models
     token = model_data.get('api_key', token)
+
+    _raise_if_provider_rate_limited(model_data)
 
     # Replace the model name in the request body with the target model name
     body['model'] = model_data['target_model_name']
@@ -256,6 +276,8 @@ async def handle_subresource_request(
     if "model" in body and model_data.get("target_model_name"):
         body["model"] = model_data["target_model_name"]
 
+    _raise_if_provider_rate_limited(model_data)
+
     target_url = f"{model_data['target_base_url']}/{api_path}{target_suffix}"
     max_response_time = model_data.get("request_timeout", 60)
     custom_timeout = httpx.Timeout(max_response_time, connect=max_response_time, read=max_response_time, pool=max_response_time)
@@ -338,6 +360,8 @@ async def handle_file_upload(
     # Update model name to target model name for backend compatibility
     data['model'] = model_data['target_model_name']
 
+    _raise_if_provider_rate_limited(model_data)
+
     # Prepare the files dictionary for the file upload
     files = {}
     for field_name, upload_file in files_data.items():
@@ -369,7 +393,7 @@ async def handle_file_upload(
             async with client.stream(
                 "POST",
                 target_url,
-                data=form_fields,
+                data=form_fields,  # type: ignore[arg-type]
                 files=files,
                 headers={"Authorization": f"Bearer {token}"},
             ) as response:
@@ -383,7 +407,7 @@ async def handle_file_upload(
         try:
             response = await client.post(
                 target_url,
-                data=form_fields,
+                data=form_fields,  # type: ignore[arg-type]
                 files=files,
                 headers={"Authorization": f"Bearer {token}"},
             )

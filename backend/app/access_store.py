@@ -5,7 +5,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from config import get_access_db_path
 
@@ -218,6 +218,87 @@ class AccessStore:
                     conn.execute("ALTER TABLE model_aliases ADD COLUMN hide_on_models_endpoint BOOLEAN DEFAULT 0")
             except sqlite3.OperationalError:
                 pass
+
+    def get_provider_ratelimits(self, provider_name: str) -> Optional[dict]:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT provider_name, limit_minute, remaining_minute, limit_hour, remaining_hour, limit_day, remaining_day, updated_at
+                FROM provider_ratelimits
+                WHERE provider_name = ?
+                """,
+                (provider_name,),
+            ).fetchone()
+
+        return dict(row) if row is not None else None
+
+    def sync_provider_ratelimits(self, provider_name: str, limits: dict[str, Any]) -> dict:
+        now = int(time.time())
+        existing = self.get_provider_ratelimits(provider_name) or {}
+        merged = {
+            "provider_name": provider_name,
+            "limit_minute": existing.get("limit_minute"),
+            "remaining_minute": existing.get("remaining_minute"),
+            "limit_hour": existing.get("limit_hour"),
+            "remaining_hour": existing.get("remaining_hour"),
+            "limit_day": existing.get("limit_day"),
+            "remaining_day": existing.get("remaining_day"),
+        }
+
+        for field in ("limit_minute", "remaining_minute", "limit_hour", "remaining_hour", "limit_day", "remaining_day"):
+            if field in limits and limits[field] is not None:
+                merged[field] = int(limits[field])
+
+        with self._lock:
+            with self._connect() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO provider_ratelimits (
+                        provider_name,
+                        limit_minute,
+                        remaining_minute,
+                        limit_hour,
+                        remaining_hour,
+                        limit_day,
+                        remaining_day,
+                        updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(provider_name)
+                    DO UPDATE SET
+                        limit_minute = excluded.limit_minute,
+                        remaining_minute = excluded.remaining_minute,
+                        limit_hour = excluded.limit_hour,
+                        remaining_hour = excluded.remaining_hour,
+                        limit_day = excluded.limit_day,
+                        remaining_day = excluded.remaining_day,
+                        updated_at = excluded.updated_at
+                    """,
+                    (
+                        provider_name,
+                        merged["limit_minute"],
+                        merged["remaining_minute"],
+                        merged["limit_hour"],
+                        merged["remaining_hour"],
+                        merged["limit_day"],
+                        merged["remaining_day"],
+                        now,
+                    ),
+                )
+
+        merged["updated_at"] = now
+        return merged
+
+    def get_exhausted_provider_ratelimit_windows(self, provider_name: str) -> list[str]:
+        snapshot = self.get_provider_ratelimits(provider_name)
+        if not snapshot:
+            return []
+
+        exhausted: list[str] = []
+        for window in ("minute", "hour", "day"):
+            remaining = snapshot.get(f"remaining_{window}")
+            if remaining is not None and int(remaining) <= 0:
+                exhausted.append(window)
+        return exhausted
 
     @staticmethod
     def _hash_secret(secret: str) -> str:
@@ -473,7 +554,15 @@ class AccessStore:
             rows = conn.execute(
                 "SELECT id, path, method, model_pattern FROM protected_endpoints ORDER BY method, path, model_pattern"
             ).fetchall()
-        return [{"id": row["id"], "path": row["path"], "method": row["method"], "model_pattern": row.get("model_pattern", "*")} for row in rows]
+        return [
+            {
+                "id": row["id"],
+                "path": row["path"],
+                "method": row["method"],
+                "model_pattern": row["model_pattern"] if "model_pattern" in row.keys() else "*",
+            }
+            for row in rows
+        ]
 
     def create_protected_endpoint(self, path: str, method: str, model_pattern: str = '*') -> dict:
         endpoint_id = str(uuid.uuid4())
@@ -518,7 +607,7 @@ class AccessStore:
             for row in rows:
                 p_pattern = row["path"]
                 m_pattern = row["method"]
-                mod_pattern = row.get("model_pattern", "*")
+                mod_pattern = row["model_pattern"] if "model_pattern" in row.keys() else "*"
                 
                 path_match = fnmatch.fnmatch(normalized_path, p_pattern) or normalized_path == p_pattern
                 method_match = m_pattern == "*" or m_pattern == normalized_method

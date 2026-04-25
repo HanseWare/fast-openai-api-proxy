@@ -32,6 +32,10 @@
           <span class="icon">🎭</span>
           Virtual Models
         </router-link>
+        <router-link to="/account" class="nav-link" active-class="active">
+          <span class="icon">👤</span>
+          Self-Service Portal
+        </router-link>
       </nav>
 
       <div class="sidebar-footer">

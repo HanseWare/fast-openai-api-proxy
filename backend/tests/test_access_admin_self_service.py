@@ -235,6 +235,22 @@ def test_access_key_lifecycle_and_quota_enforcement():
     )
     assert quota_resp.status_code == 200
 
+    own_quota = client.get(
+        f"/api/keys/{created_id}/quota",
+        headers={"Authorization": "Bearer user-seed-token"},
+    )
+    assert own_quota.status_code == 200
+    assert own_quota.json()["api_key_id"] == created_id
+    assert own_quota.json()["requests_per_minute"] == 1
+
+    own_usage = client.get(
+        f"/api/keys/{created_id}/usage",
+        headers={"Authorization": "Bearer user-seed-token"},
+    )
+    assert own_usage.status_code == 200
+    assert own_usage.json()["api_key_id"] == created_id
+    assert own_usage.json()["requests_per_minute"] == 1
+
     first_call = client.post(
         "/v1/chat/completions",
         headers={"Authorization": f"Bearer {created_secret}"},

@@ -1,6 +1,6 @@
 # Fast OpenAI API Proxy
 
-OpenAI-compatible FastAPI proxy that routes one API surface to multiple backend providers (OpenAI, Azure OpenAI, local/custom endpoints).
+OpenAI-compatible FastAPI proxy that routes one API surface to multiple backend providers, with SQLite-backed routing/config management, virtual model aliases, and passthrough behavior for upstream responses.
 
 ## Repository Layout
 
@@ -8,22 +8,30 @@ OpenAI-compatible FastAPI proxy that routes one API surface to multiple backend 
 .
 ├── backend/
 │   ├── app/                 # FastAPI app, routers, middleware, auth, storage
-│   ├── configs/             # Provider/model mapping JSON files
+│   ├── configs/             # Provider/model mapping JSON/YAML seed files
 │   ├── tests/               # Pytest suites
 │   ├── Dockerfile
 │   ├── requirements.txt
 │   └── requirements-dev.txt
 ├── AGENTS.md
-├── ROADMAP.md
+├── docs/
+│   ├── ROADMAP.md
+│   └── walkthrough.md
+├── frontend/                # Vue admin UI
 └── LICENSE
 ```
 
 ## What It Supports
 
 - OpenAI v1-style endpoints under `/v1` (chat/completions/embeddings/audio/images/moderations/models/responses)
-- Provider/model routing via JSON configs (`backend/configs/*.json`)
+- Provider/model/endpoint routing from the SQLite config store, with automatic fallback seeding from `backend/configs/*.json` or `*.yml`/`*.yaml` when the DB is empty
+- Virtual models / aliases that resolve to a target upstream model and can be hidden from `/v1/models`
 - Streaming passthrough (SSE), file upload passthrough, robust upstream error/status passthrough
+- Fallback routing via `fallback_model_name` plus provider-level route fallbacks
+- Provider rate-limit sync from upstream `x-ratelimit-*` headers when enabled per provider, with proactive 429 short-circuiting when cached limits are exhausted
 - Optional admin + self-service APIs (`/api/admin/*`, `/api/*`)
+- Vue self-service account portal at `/account`
+- Admin config APIs for providers, models, endpoints, aliases, and JSON import (`/api/admin/config/*`)
 - Optional access control middleware (API keys, protected endpoints, quotas)
 - Optional OIDC auth with role/group mapping
 
@@ -100,6 +108,11 @@ When feature flags are enabled:
 - Admin:
   - `GET /api/admin/health`
   - `GET /api/admin/auth-config`
+  - `GET|POST|PUT|DELETE /api/admin/config/providers...`
+  - `GET|POST|PUT|DELETE /api/admin/config/models...`
+  - `GET|POST|PUT|DELETE /api/admin/config/endpoints...`
+  - `GET|POST|PUT|DELETE /api/admin/config/aliases...`
+  - `POST /api/admin/config/import`
   - `GET|POST|DELETE /api/admin/keys...`
   - `GET|PUT /api/admin/keys/{key_id}/quota`
   - `GET /api/admin/keys/{key_id}/usage`
@@ -122,7 +135,17 @@ When feature flags are enabled:
 
 ## Notes
 
-- `backend/app/models_handler.py` loads configs once at startup.
-- Endpoint-model resolution is driven by `api_path + model` mapping.
+- `backend/app/models_handler.py` loads config from SQLite and falls back to seed files when the DB is empty.
+- `backend/app/routers/admin_config.py` exposes CRUD and import APIs for providers, models, endpoints, and aliases.
+- Endpoint-model resolution is driven by `api_path + model` mapping, with alias resolution before lookup.
 - Request auth to upstream providers uses provider env keys, not client bearer tokens.
 - See `AGENTS.md` for contribution patterns and high-signal code paths.
+
+## Project Status
+
+- Phase 1: complete
+- Phase 2: complete
+- Phase 2.5: complete
+- Phase 3: in progress — identity, quotas, self-service portal, and provider rate-limit hardening
+- Phase 4: planned — stateful intelligence, PostgreSQL, and vector-store features
+
