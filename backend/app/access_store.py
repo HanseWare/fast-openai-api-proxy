@@ -1,5 +1,4 @@
 import hashlib
-import secrets
 import sqlite3
 import threading
 import time
@@ -59,6 +58,16 @@ class AccessStore:
                     window_minute INTEGER NOT NULL,
                     request_count INTEGER NOT NULL,
                     PRIMARY KEY(api_key_id, window_minute)
+                );
+
+                CREATE TABLE IF NOT EXISTS usage_counters (
+                    owner_id TEXT NOT NULL,
+                    api_path TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    window_type TEXT NOT NULL,
+                    window_bucket INTEGER NOT NULL,
+                    request_count INTEGER NOT NULL,
+                    PRIMARY KEY(owner_id, api_path, model, window_type, window_bucket)
                 );
 
                 CREATE TABLE IF NOT EXISTS quota_policies (
@@ -296,7 +305,7 @@ class AccessStore:
         exhausted: list[str] = []
         for window in ("minute", "hour", "day"):
             remaining = snapshot.get(f"remaining_{window}")
-            if remaining is not None and int(remaining) <= 0:
+            if isinstance(remaining, int) and remaining <= 0:
                 exhausted.append(window)
         return exhausted
 
@@ -312,22 +321,41 @@ class AccessStore:
 
     @staticmethod
     def _new_secret() -> str:
-        return f"foap_{secrets.token_urlsafe(24)}"
+        raw_uuid = str(uuid.uuid4())
+        uuid_hash = hashlib.sha256(raw_uuid.encode("utf-8")).hexdigest()
+        return f"foap-{uuid_hash}"
+
+    def _secret_hash_exists(self, conn: sqlite3.Connection, secret_hash: str) -> bool:
+        row = conn.execute(
+            "SELECT 1 FROM api_keys WHERE secret_hash = ? LIMIT 1",
+            (secret_hash,),
+        ).fetchone()
+        return row is not None
 
     def create_api_key(self, name: str, owner_id: Optional[str]) -> dict:
-        secret = self._new_secret()
         now = int(time.time())
-        key_id = str(uuid.uuid4())
 
         with self._lock:
             with self._connect() as conn:
-                conn.execute(
-                    """
-                    INSERT INTO api_keys (id, name, owner_id, secret_hash, revoked, created_at)
-                    VALUES (?, ?, ?, ?, 0, ?)
-                    """,
-                    (key_id, name, owner_id, self._hash_secret(secret), now),
-                )
+                while True:
+                    key_id = str(uuid.uuid4())
+                    secret = self._new_secret()
+                    secret_hash = self._hash_secret(secret)
+
+                    if self._secret_hash_exists(conn, secret_hash):
+                        continue
+
+                    try:
+                        conn.execute(
+                            """
+                            INSERT INTO api_keys (id, name, owner_id, secret_hash, revoked, created_at)
+                            VALUES (?, ?, ?, ?, 0, ?)
+                            """,
+                            (key_id, name, owner_id, secret_hash, now),
+                        )
+                        break
+                    except sqlite3.IntegrityError:
+                        continue
 
         return {
             "id": key_id,
@@ -385,6 +413,21 @@ class AccessStore:
             ).fetchone()
 
         if row is None:
+            return None
+
+        return {"id": row["id"], "name": row["name"], "owner_id": row["owner_id"]}
+
+    def get_api_key(self, key_id: str, owner_id: Optional[str] = None) -> Optional[dict]:
+        query = "SELECT id, name, owner_id, revoked FROM api_keys WHERE id = ?"
+        params: tuple = (key_id,)
+        if owner_id is not None:
+            query += " AND owner_id = ?"
+            params = (key_id, owner_id)
+
+        with self._connect() as conn:
+            row = conn.execute(query, params).fetchone()
+
+        if row is None or int(row["revoked"]) == 1:
             return None
 
         return {"id": row["id"], "name": row["name"], "owner_id": row["owner_id"]}
@@ -488,6 +531,133 @@ class AccessStore:
             "used": used,
             "remaining": remaining,
             "reset_in_seconds": reset_in_seconds,
+        }
+
+    def record_usage(self, owner_id: str, api_path: str, model: str) -> None:
+        normalized_owner = self._normalize_owner_id(owner_id)
+        normalized_path = self._normalize_path(api_path)
+        normalized_model = self._normalize_model(model)
+        now = int(time.time())
+
+        with self._lock:
+            with self._connect() as conn:
+                for window_type in ("minute", "hour", "day"):
+                    window_bucket, _ = self._window_bucket(now, window_type)
+                    conn.execute(
+                        """
+                        INSERT INTO usage_counters (owner_id, api_path, model, window_type, window_bucket, request_count)
+                        VALUES (?, ?, ?, ?, ?, 1)
+                        ON CONFLICT(owner_id, api_path, model, window_type, window_bucket)
+                        DO UPDATE SET request_count = request_count + 1
+                        """,
+                        (normalized_owner, normalized_path, normalized_model, window_type, window_bucket),
+                    )
+
+    def get_usage_summary(
+        self,
+        owner_id: str,
+        model: Optional[str] = None,
+        api_path: Optional[str] = None,
+        window_size: int = 6,
+    ) -> dict:
+        normalized_owner = self._normalize_owner_id(owner_id)
+        normalized_model = self._normalize_model(model) if model is not None else None
+        normalized_path = self._normalize_path(api_path) if api_path is not None else None
+        window_size = max(1, min(int(window_size), 96))
+        now = int(time.time())
+
+        windows: dict[str, Any] = {"minute": [], "hour": [], "day": []}
+        totals: dict[str, int] = {"minute": 0, "hour": 0, "day": 0}
+
+        with self._connect() as conn:
+            for window_type in ("minute", "hour", "day"):
+                window_bucket, reset_in_seconds = self._window_bucket(now, window_type)
+
+                clauses = ["owner_id = ?", "window_type = ?", "window_bucket = ?"]
+                params: list[object] = [normalized_owner, window_type, window_bucket]
+
+                if normalized_model is not None:
+                    clauses.append("model = ?")
+                    params.append(normalized_model)
+                if normalized_path is not None:
+                    clauses.append("api_path = ?")
+                    params.append(normalized_path)
+
+                where_sql = " AND ".join(clauses)
+
+                total_row = conn.execute(
+                    f"SELECT COALESCE(SUM(request_count), 0) AS total FROM usage_counters WHERE {where_sql}",
+                    params,
+                ).fetchone()
+                totals[window_type] = int(total_row["total"]) if total_row is not None else 0
+
+                rows = conn.execute(
+                    f"""
+                    SELECT api_path, model, request_count
+                    FROM usage_counters
+                    WHERE {where_sql}
+                    ORDER BY request_count DESC, model, api_path
+                    """,
+                    params,
+                ).fetchall()
+
+                windows[window_type] = [
+                    {
+                        "api_path": row["api_path"],
+                        "model": row["model"],
+                        "request_count": int(row["request_count"]),
+                    }
+                    for row in rows
+                ]
+
+                trend_rows = conn.execute(
+                    f"""
+                    SELECT window_bucket, COALESCE(SUM(request_count), 0) AS total
+                    FROM usage_counters
+                    WHERE owner_id = ?
+                      AND window_type = ?
+                      AND window_bucket BETWEEN ? AND ?
+                      {"AND model = ?" if normalized_model is not None else ""}
+                      {"AND api_path = ?" if normalized_path is not None else ""}
+                    GROUP BY window_bucket
+                    ORDER BY window_bucket ASC
+                    """,
+                    (
+                        [
+                            normalized_owner,
+                            window_type,
+                            window_bucket - window_size + 1,
+                            window_bucket,
+                        ]
+                        + ([normalized_model] if normalized_model is not None else [])
+                        + ([normalized_path] if normalized_path is not None else [])
+                    ),
+                ).fetchall()
+
+                trend_map = {int(row["window_bucket"]): int(row["total"]) for row in trend_rows}
+                windows[window_type + "_trend"] = [
+                    {
+                        "window_bucket": bucket,
+                        "request_count": trend_map.get(bucket, 0),
+                    }
+                    for bucket in range(window_bucket - window_size + 1, window_bucket + 1)
+                ]
+
+                windows[window_type + "_meta"] = {
+                    "window_bucket": window_bucket,
+                    "reset_in_seconds": reset_in_seconds,
+                }
+
+        return {
+            "owner_id": normalized_owner,
+            "generated_at": now,
+            "filters": {
+                "model": normalized_model,
+                "api_path": normalized_path,
+                "window_size": window_size,
+            },
+            "totals": totals,
+            "windows": windows,
         }
 
     @staticmethod

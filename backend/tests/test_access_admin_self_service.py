@@ -46,6 +46,7 @@ def _reset_access_store():
             DELETE FROM quota_overrides;
             DELETE FROM quota_policy_usage;
             DELETE FROM quota_policies;
+            DELETE FROM usage_counters;
             DELETE FROM api_key_usage;
             DELETE FROM api_key_quotas;
             DELETE FROM protected_endpoints;
@@ -69,6 +70,8 @@ def test_access_key_lifecycle_and_quota_enforcement():
     created_id = created_key["id"]
     created_secret = created_key["api_key"]
     created_owner_id = created_key["owner_id"]
+    assert created_secret.startswith("foap-")
+    assert len(created_secret) == 69
 
     create_self_2 = client.post(
         "/api/keys",
@@ -79,6 +82,9 @@ def test_access_key_lifecycle_and_quota_enforcement():
     created_key_2 = create_self_2.json()
     created_secret_2 = created_key_2["api_key"]
     created_owner_id_2 = created_key_2["owner_id"]
+    assert created_secret_2.startswith("foap-")
+    assert len(created_secret_2) == 69
+    assert created_secret_2 != created_secret
 
     self_list = client.get("/api/keys", headers={"Authorization": "Bearer user-seed-token"})
     assert self_list.status_code == 200
@@ -402,6 +408,32 @@ def test_access_key_lifecycle_and_quota_enforcement():
     assert usage_payload["remaining"] == 0
     assert usage_payload["reset_in_seconds"] >= 1
 
+    usage_summary = client.get(
+        "/api/usage/summary",
+        headers={"Authorization": "Bearer user-seed-token"},
+    )
+    assert usage_summary.status_code == 200
+    summary_payload = usage_summary.json()
+    assert summary_payload["owner_id"] == created_owner_id
+    assert summary_payload["totals"]["minute"] >= 1
+    assert any(
+        row["model"] == "gpt-4o" and row["api_path"] == "/v1/chat/completions"
+        for row in summary_payload["windows"]["minute"]
+    )
+    assert len(summary_payload["windows"]["minute_trend"]) == 6
+
+    usage_summary_filtered = client.get(
+        "/api/usage/summary",
+        headers={"Authorization": "Bearer user-seed-token"},
+        params={"model": "gpt-4o", "api_path": "/v1/chat/completions", "window_size": 4},
+    )
+    assert usage_summary_filtered.status_code == 200
+    filtered_payload = usage_summary_filtered.json()
+    assert filtered_payload["filters"]["model"] == "gpt-4o"
+    assert filtered_payload["filters"]["api_path"] == "/v1/chat/completions"
+    assert filtered_payload["filters"]["window_size"] == 4
+    assert len(filtered_payload["windows"]["minute_trend"]) == 4
+
     policy_delete = client.delete(
         f"/api/admin/quota-policies/{policy_id}",
         headers={"Authorization": "Bearer admin-secret"},
@@ -443,6 +475,34 @@ def test_access_key_lifecycle_and_quota_enforcement():
         json={"model": "gpt-4o", "messages": [{"role": "user", "content": "hello"}]},
     )
     assert no_auth_call.status_code == 401
+
+
+def test_self_service_api_key_generation_retries_duplicate_secret(monkeypatch):
+    _reset_access_store()
+
+    client = TestClient(_build_app())
+
+    first_key = client.post(
+        "/api/keys",
+        headers={"Authorization": "Bearer duplicate-user-token"},
+        json={"name": "existing"},
+    )
+    assert first_key.status_code == 200
+    existing_secret = first_key.json()["api_key"]
+
+    from access_store import store  # noqa: E402
+
+    secret_values = iter([existing_secret, "foap-" + ("1" * 64)])
+    monkeypatch.setattr(store, "_new_secret", lambda: next(secret_values))
+
+    second_key = client.post(
+        "/api/keys",
+        headers={"Authorization": "Bearer duplicate-user-token-2"},
+        json={"name": "replacement"},
+    )
+    assert second_key.status_code == 200
+    assert second_key.json()["api_key"] != existing_secret
+    assert second_key.json()["api_key"].startswith("foap-")
 
 
 def test_quota_decision_trace_header_exposes_resolution_source():

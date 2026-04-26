@@ -173,6 +173,8 @@ class AccessControlMiddleware(BaseHTTPMiddleware):
         request.state.api_key = key_context
         request.state.oidc_owner_id = oidc_owner_id
         response = await call_next(request)
+        if effective_owner and model and path.startswith("/v1/") and response.status_code < 500:
+            store.record_usage(owner_id=effective_owner, api_path=path, model=model)
         if emit_trace:
             response.headers[TRACE_HEADER_NAME] = _trace_header_value(trace)
         return response

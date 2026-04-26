@@ -9,11 +9,75 @@ class ConfigStore:
     def __init__(self, db_path: Optional[str] = None):
         self.db_path = db_path or get_access_db_path()
         self._lock = threading.Lock()
+        self._init_db()
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         return conn
+
+    def _init_db(self) -> None:
+        with self._connect() as conn:
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS providers (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL UNIQUE,
+                    api_key_variable TEXT,
+                    prefix TEXT NOT NULL DEFAULT '',
+                    default_base_url TEXT,
+                    default_request_timeout INTEGER,
+                    default_health_timeout INTEGER,
+                    max_upstream_retry_seconds INTEGER DEFAULT 0,
+                    sync_provider_ratelimits BOOLEAN DEFAULT 0,
+                    route_fallbacks TEXT DEFAULT '{}',
+                    created_at INTEGER NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS provider_models (
+                    id TEXT PRIMARY KEY,
+                    provider_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    owned_by TEXT DEFAULT 'FOAP',
+                    hide_on_models_endpoint BOOLEAN DEFAULT 0,
+                    FOREIGN KEY(provider_id) REFERENCES providers(id),
+                    UNIQUE(provider_id, name)
+                );
+
+                CREATE TABLE IF NOT EXISTS provider_model_endpoints (
+                    id TEXT PRIMARY KEY,
+                    model_id TEXT NOT NULL,
+                    path TEXT NOT NULL,
+                    target_model_name TEXT NOT NULL,
+                    target_base_url TEXT,
+                    request_timeout INTEGER,
+                    health_timeout INTEGER,
+                    fallback_model_name TEXT,
+                    FOREIGN KEY(model_id) REFERENCES provider_models(id),
+                    UNIQUE(model_id, path)
+                );
+
+                CREATE TABLE IF NOT EXISTS model_aliases (
+                    id TEXT PRIMARY KEY,
+                    alias_name TEXT NOT NULL UNIQUE,
+                    target_model_name TEXT NOT NULL,
+                    owned_by TEXT DEFAULT 'FOAP',
+                    hide_on_models_endpoint BOOLEAN DEFAULT 0,
+                    created_at INTEGER NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS provider_ratelimits (
+                    provider_name TEXT PRIMARY KEY,
+                    limit_minute INTEGER,
+                    remaining_minute INTEGER,
+                    limit_hour INTEGER,
+                    remaining_hour INTEGER,
+                    limit_day INTEGER,
+                    remaining_day INTEGER,
+                    updated_at INTEGER NOT NULL
+                );
+                """
+            )
 
     # ---------------- Providers ----------------
 

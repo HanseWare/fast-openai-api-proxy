@@ -110,6 +110,39 @@ def test_self_service_oidc_only_requires_valid_oidc(monkeypatch):
     assert response.status_code == 401
 
 
+def test_self_service_auth_config_exposes_login_hint(monkeypatch):
+    monkeypatch.setenv("FOAP_ENABLE_OIDC_AUTH", "1")
+    monkeypatch.setenv("FOAP_SELF_SERVICE_OIDC_ONLY", "1")
+
+    app = FastAPI()
+    app.include_router(self_service_router)
+    client = TestClient(app)
+
+    response = client.get("/api/auth-config")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["mode"] == "oidc-only"
+    assert body["oidc_only"] is True
+    assert "OIDC" in body["login_hint"]
+
+
+def test_self_service_session_exposes_oidc_source(monkeypatch):
+    _reset_store_tables()
+    monkeypatch.setenv("FOAP_ENABLE_OIDC_AUTH", "1")
+
+    app = FastAPI()
+    app.include_router(self_service_router)
+    client = TestClient(app)
+
+    monkeypatch.setattr("routers.self_service.get_oidc_owner_id", lambda token: "oidc:user-42")
+
+    response = client.get("/api/session", headers={"Authorization": "Bearer oidc-token"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["owner_id"] == "oidc:user-42"
+    assert body["auth_source"] == "oidc"
+
+
 def test_auth_configuration_errors_for_oidc_only_without_oidc(monkeypatch):
     monkeypatch.setenv("FOAP_ENABLE_OIDC_AUTH", "0")
     monkeypatch.setenv("FOAP_ADMIN_OIDC_ONLY", "1")

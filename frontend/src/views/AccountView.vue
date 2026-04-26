@@ -5,8 +5,8 @@
         <p class="eyebrow">/account</p>
         <h1>Self-Service Portal</h1>
         <p class="muted">
-          Generate, review, and revoke your own FOAP API keys. The same bearer token is used for both
-          static-token and OIDC-backed self-service modes.
+          Generate, review, and revoke your own FOAP API keys.
+          <span v-if="authModeHint"> {{ authModeHint }}</span>
         </p>
       </div>
       <div class="hero-stats" v-if="isAuthenticated">
@@ -18,26 +18,40 @@
           <span class="stat-value">{{ quotaSummary.configured }}</span>
           <span class="stat-label">With Quota</span>
         </div>
+        <div class="stat-card">
+          <span class="stat-value">{{ quotaSummary.totalUsed }}</span>
+          <span class="stat-label">Used / Window</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-value">{{ quotaSummary.totalRemaining }}</span>
+          <span class="stat-label">Remaining / Window</span>
+        </div>
       </div>
     </section>
 
     <section v-if="!isAuthenticated" class="glass-panel login-card">
-      <h2>Sign in to your account</h2>
-      <p class="muted">
-        Use your self-service bearer token or OIDC access token to access this portal.
-      </p>
+      <div class="login-header">
+        <div>
+          <h2>{{ loginTitle }}</h2>
+          <p class="muted">
+            {{ loginDescription }}
+          </p>
+        </div>
+        <span class="mode-chip" :class="`mode-chip--${authModeClass}`">{{ authModeLabel }}</span>
+      </div>
       <form class="login-form" @submit.prevent="handleLogin">
         <div class="input-group">
-          <label for="account-token">Bearer Token</label>
+          <label for="account-token">{{ loginFieldLabel }}</label>
           <input
             id="account-token"
             v-model="loginToken"
             type="password"
-            placeholder="Paste your token"
+            :placeholder="loginPlaceholder"
             autocomplete="current-password"
             required
           />
         </div>
+        <p class="auth-guidance" v-if="authModeHint">{{ authModeHint }}</p>
         <button class="btn-primary" type="submit" :disabled="loadingAuth">
           {{ loadingAuth ? 'Verifying…' : 'Open Account Portal' }}
         </button>
@@ -49,7 +63,11 @@
       <section class="toolbar glass-panel">
         <div>
           <h2>Identity</h2>
-          <p class="muted">Authenticated as <code>{{ authStore.token ? 'Bearer token present' : 'unknown' }}</code>.</p>
+          <p class="muted">
+            Authenticated as <code>{{ authStore.token ? 'Bearer token present' : 'unknown' }}</code>
+            <span v-if="authModeLabel"> · Mode: {{ authModeLabel }}</span>
+          </p>
+          <p class="muted" v-if="sessionInfo">Owner: <code>{{ sessionInfo.owner_id }}</code> · Source: {{ sessionInfo.auth_source }}</p>
         </div>
         <div class="toolbar-actions">
           <button class="btn-secondary" type="button" @click="refreshAll" :disabled="loading">
@@ -90,27 +108,94 @@
                 </button>
               </div>
 
+              <div class="quota-card-meta">
+                <span class="status-pill" :class="`status-pill--${item.statusTone}`">{{ item.statusLabel }}</span>
+                <span class="muted">Resets in {{ item.resetLabel }}</span>
+              </div>
+
+              <div v-if="item.quotaLimit !== null" class="quota-progress">
+                <div class="quota-progress-track" aria-hidden="true">
+                  <div class="quota-progress-fill" :style="{ width: `${item.usagePercent}%` }"></div>
+                </div>
+                <div class="quota-progress-labels">
+                  <span>{{ item.usedLabel }} / {{ item.quotaLimit }}</span>
+                  <span>{{ item.usagePercent }}%</span>
+                </div>
+              </div>
+
               <div v-if="item.quota" class="quota-metrics">
                 <div>
                   <span class="metric-label">Requests/minute</span>
-                  <span class="metric-value">{{ item.quota.requests_per_minute }}</span>
+                  <span class="metric-value">{{ item.quotaLimit }}</span>
                 </div>
                 <div>
                   <span class="metric-label">Used</span>
-                  <span class="metric-value">{{ item.usage?.used ?? '—' }}</span>
+                  <span class="metric-value">{{ item.usedLabel }}</span>
                 </div>
                 <div>
                   <span class="metric-label">Remaining</span>
-                  <span class="metric-value">{{ item.usage?.remaining ?? '—' }}</span>
+                  <span class="metric-value">{{ item.remainingLabel }}</span>
                 </div>
                 <div>
                   <span class="metric-label">Reset In</span>
-                  <span class="metric-value">{{ formatSeconds(item.usage?.reset_in_seconds) }}</span>
+                  <span class="metric-value">{{ item.resetLabel }}</span>
                 </div>
               </div>
               <p v-else class="muted">No quota configured yet.</p>
             </article>
           </div>
+        </div>
+      </section>
+
+      <section class="glass-panel panel">
+        <h2>Usage insights</h2>
+        <form class="usage-filter-form" @submit.prevent="applyUsageFilters">
+          <div class="input-group">
+            <label for="usage-model">Model filter</label>
+            <input id="usage-model" v-model="usageFilterModel" type="text" placeholder="e.g. gpt-4o" />
+          </div>
+          <div class="input-group">
+            <label for="usage-path">API path filter</label>
+            <input id="usage-path" v-model="usageFilterApiPath" type="text" placeholder="e.g. /v1/chat/completions" />
+          </div>
+          <div class="input-group">
+            <label for="usage-window">Trend points</label>
+            <select id="usage-window" v-model.number="usageWindowSize">
+              <option :value="4">4</option>
+              <option :value="6">6</option>
+              <option :value="12">12</option>
+              <option :value="24">24</option>
+            </select>
+          </div>
+          <div class="usage-filter-actions">
+            <button class="btn-secondary small" type="submit">Apply</button>
+            <button class="btn-secondary small" type="button" @click="resetUsageFilters">Reset</button>
+          </div>
+        </form>
+        <p class="muted" v-if="!usageSummary">No usage data yet.</p>
+        <div v-else class="usage-grid">
+          <article v-for="window in usageWindows" :key="window.name" class="usage-card">
+            <div class="usage-card-head">
+              <h3>{{ window.label }}</h3>
+              <span class="status-pill status-pill--neutral">{{ window.total }} requests</span>
+            </div>
+            <p class="muted">Reset in {{ formatSeconds(window.resetIn) }}</p>
+            <div class="trend-row" v-if="window.trend.length">
+              <div class="trend-bar" v-for="point in window.trend" :key="`${window.name}-${point.window_bucket}`">
+                <span class="trend-bar-fill" :style="{ height: `${point.percent}%` }"></span>
+              </div>
+            </div>
+            <p class="muted" v-if="!window.rows.length">No requests in this window.</p>
+            <div v-else class="usage-rows">
+              <div class="usage-row" v-for="row in window.rows" :key="`${window.name}-${row.model}-${row.api_path}`">
+                <div>
+                  <strong>{{ row.model }}</strong>
+                  <p class="muted">{{ row.api_path }}</p>
+                </div>
+                <span class="metric-value">{{ row.request_count }}</span>
+              </div>
+            </div>
+          </article>
         </div>
       </section>
 
@@ -144,6 +229,9 @@ import { fetchSelfServiceApi } from '../api'
 const router = useRouter()
 const authStore = useAuthStore()
 
+const authConfig = ref(null)
+const sessionInfo = ref(null)
+const usageSummary = ref(null)
 const loginToken = ref(authStore.token || '')
 const loginError = ref('')
 const loadingAuth = ref(false)
@@ -152,17 +240,179 @@ const error = ref('')
 const keys = ref([])
 const keyDetails = ref([])
 const newKeyName = ref('')
+const usageFilterModel = ref('')
+const usageFilterApiPath = ref('')
+const usageWindowSize = ref(6)
 
 const isAuthenticated = computed(() => authStore.isAuthenticated)
 
+const authMode = computed(() => authConfig.value?.mode || 'loading')
+const authModeLabel = computed(() => {
+  switch (authMode.value) {
+    case 'oidc-only':
+      return 'OIDC only'
+    case 'oidc-or-token-hash':
+      return 'OIDC + Token'
+    case 'token-hash-only':
+      return 'Static token'
+    default:
+      return 'Loading auth mode…'
+  }
+})
+const authModeClass = computed(() => {
+  switch (authMode.value) {
+    case 'oidc-only':
+      return 'oidc'
+    case 'oidc-or-token-hash':
+      return 'hybrid'
+    case 'token-hash-only':
+      return 'token'
+    default:
+      return 'loading'
+  }
+})
+const authModeHint = computed(() => authConfig.value?.login_hint || 'Loading self-service auth mode…')
+const loginTitle = computed(() => {
+  switch (authMode.value) {
+    case 'oidc-only':
+      return 'Continue with OIDC'
+    case 'oidc-or-token-hash':
+      return 'Sign in with OIDC or token'
+    case 'token-hash-only':
+      return 'Sign in with your FOAP token'
+    default:
+      return 'Sign in to your account'
+  }
+})
+const loginDescription = computed(() => {
+  switch (authMode.value) {
+    case 'oidc-only':
+      return 'Your portal expects an OIDC-issued access token. Tokens from your identity provider are accepted here.'
+    case 'oidc-or-token-hash':
+      return 'You can use either an OIDC access token or a static FOAP bearer token for self-service access.'
+    case 'token-hash-only':
+      return 'Use your static FOAP bearer token to manage personal API keys.'
+    default:
+      return 'Use your self-service bearer token or OIDC access token to access this portal.'
+  }
+})
+const loginFieldLabel = computed(() => {
+  if (authMode.value === 'oidc-only') return 'OIDC Access Token'
+  if (authMode.value === 'oidc-or-token-hash') return 'OIDC or FOAP Token'
+  return 'Bearer Token'
+})
+const loginPlaceholder = computed(() => {
+  if (authMode.value === 'oidc-only') return 'Paste your OIDC access token'
+  if (authMode.value === 'oidc-or-token-hash') return 'Paste your OIDC or FOAP token'
+  return 'Paste your FOAP bearer token'
+})
+
 const quotaSummary = computed(() => ({
-  configured: keyDetails.value.filter((item) => item.quota).length,
+  configured: keyDetails.value.filter((item) => item.quotaLimit !== null).length,
+  totalUsed: keyDetails.value.reduce((sum, item) => sum + (item.used ?? 0), 0),
+  totalRemaining: keyDetails.value.reduce((sum, item) => sum + (item.remaining ?? 0), 0),
+  exhausted: keyDetails.value.filter((item) => item.statusTone === 'danger').length,
 }))
+
+const usageWindows = computed(() => {
+  if (!usageSummary.value) {
+    return []
+  }
+
+  const windows = usageSummary.value.windows || {}
+  const totals = usageSummary.value.totals || {}
+
+  const buildTrend = (trend = []) => {
+    const maxValue = trend.reduce((max, row) => Math.max(max, row.request_count || 0), 0) || 1
+    return trend.map((row) => ({
+      ...row,
+      percent: Math.max(8, Math.round(((row.request_count || 0) / maxValue) * 100)),
+    }))
+  }
+
+  return [
+    {
+      name: 'minute',
+      label: 'Current minute',
+      total: totals.minute || 0,
+      rows: (windows.minute || []).slice(0, 5),
+      resetIn: windows.minute_meta?.reset_in_seconds,
+      trend: buildTrend(windows.minute_trend || []),
+    },
+    {
+      name: 'hour',
+      label: 'Current hour',
+      total: totals.hour || 0,
+      rows: (windows.hour || []).slice(0, 5),
+      resetIn: windows.hour_meta?.reset_in_seconds,
+      trend: buildTrend(windows.hour_trend || []),
+    },
+    {
+      name: 'day',
+      label: 'Current day',
+      total: totals.day || 0,
+      rows: (windows.day || []).slice(0, 5),
+      resetIn: windows.day_meta?.reset_in_seconds,
+      trend: buildTrend(windows.day_trend || []),
+    },
+  ]
+})
+
+function _usageSummaryQuery() {
+  const params = new URLSearchParams()
+  if (usageFilterModel.value.trim()) {
+    params.set('model', usageFilterModel.value.trim())
+  }
+  if (usageFilterApiPath.value.trim()) {
+    params.set('api_path', usageFilterApiPath.value.trim())
+  }
+  params.set('window_size', String(usageWindowSize.value || 6))
+  return params.toString()
+}
+
+function decorateKeyDetail(key, quota, usage) {
+  const quotaLimit = quota?.requests_per_minute ?? null
+  const used = usage?.used ?? null
+  const remaining = usage?.remaining ?? null
+  const usagePercent = quotaLimit && used !== null ? Math.min(100, Math.round((used / quotaLimit) * 100)) : 0
+
+  let statusTone = 'neutral'
+  let statusLabel = 'No quota'
+
+  if (quotaLimit !== null) {
+    if (remaining === 0) {
+      statusTone = 'danger'
+      statusLabel = 'Exhausted'
+    } else if (usagePercent >= 80) {
+      statusTone = 'warning'
+      statusLabel = 'Near limit'
+    } else {
+      statusTone = 'success'
+      statusLabel = 'Healthy'
+    }
+  }
+
+  return {
+    key,
+    quota,
+    usage,
+    quotaLimit,
+    used,
+    remaining,
+    usedLabel: used ?? '—',
+    remainingLabel: remaining ?? '—',
+    usagePercent,
+    resetLabel: formatSeconds(usage?.reset_in_seconds),
+    statusTone,
+    statusLabel,
+  }
+}
 
 function handleLogout() {
   authStore.logout()
   keys.value = []
   keyDetails.value = []
+  usageSummary.value = null
   router.replace({ name: 'login' })
 }
 
@@ -182,6 +432,52 @@ async function handleLogin() {
   }
 }
 
+async function loadAuthConfig() {
+  try {
+    authConfig.value = await fetchSelfServiceApi('/auth-config')
+  } catch (err) {
+    authConfig.value = {
+      mode: 'loading',
+      login_hint: 'Unable to load self-service auth mode right now.',
+    }
+  }
+}
+
+async function loadSessionInfo() {
+  try {
+    sessionInfo.value = await fetchSelfServiceApi('/session')
+  } catch (err) {
+    sessionInfo.value = null
+  }
+}
+
+async function loadUsageSummary() {
+  const qs = _usageSummaryQuery()
+  usageSummary.value = await fetchSelfServiceApi(`/usage/summary${qs ? `?${qs}` : ''}`)
+}
+
+async function applyUsageFilters() {
+  if (!authStore.isAuthenticated) {
+    return
+  }
+  loading.value = true
+  error.value = ''
+  try {
+    await loadUsageSummary()
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Failed to load usage summary.'
+  } finally {
+    loading.value = false
+  }
+}
+
+function resetUsageFilters() {
+  usageFilterModel.value = ''
+  usageFilterApiPath.value = ''
+  usageWindowSize.value = 6
+  applyUsageFilters()
+}
+
 async function refreshAll() {
   if (!authStore.isAuthenticated) {
     return
@@ -192,20 +488,23 @@ async function refreshAll() {
   try {
     const response = await fetchSelfServiceApi('/keys')
     keys.value = response
+    await loadSessionInfo()
+    await loadUsageSummary()
     keyDetails.value = await Promise.all(
       response.map(async (key) => {
-        const detail = { key, quota: null, usage: null }
+        let quota = null
+        let usage = null
         try {
-          detail.quota = await fetchSelfServiceApi(`/keys/${key.id}/quota`)
+          quota = await fetchSelfServiceApi(`/keys/${key.id}/quota`)
         } catch (err) {
-          detail.quota = null
+          quota = null
         }
         try {
-          detail.usage = await fetchSelfServiceApi(`/keys/${key.id}/usage`)
+          usage = await fetchSelfServiceApi(`/keys/${key.id}/usage`)
         } catch (err) {
-          detail.usage = null
+          usage = null
         }
-        return detail
+        return decorateKeyDetail(key, quota, usage)
       })
     )
   } catch (err) {
@@ -258,6 +557,7 @@ function formatSeconds(value) {
 }
 
 onMounted(() => {
+  loadAuthConfig()
   if (authStore.isAuthenticated) {
     refreshAll()
   }
@@ -300,6 +600,46 @@ onMounted(() => {
 .hero-stats {
   display: flex;
   gap: 1rem;
+}
+
+.login-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.mode-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.mode-chip--oidc,
+.mode-chip--hybrid {
+  color: var(--color-teal-cyan);
+  background: rgba(0, 229, 255, 0.08);
+  border-color: rgba(0, 229, 255, 0.2);
+}
+
+.mode-chip--token,
+.mode-chip--loading {
+  color: var(--color-text-secondary);
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.auth-guidance {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.9rem;
 }
 
 .stat-card {
@@ -363,6 +703,85 @@ onMounted(() => {
   gap: 1.5rem;
 }
 
+.usage-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.usage-filter-form {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.usage-filter-actions {
+  display: flex;
+  align-items: end;
+  gap: 0.5rem;
+}
+
+.usage-card {
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  padding: 1rem;
+  background: rgba(11, 16, 33, 0.45);
+}
+
+.usage-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.usage-card-head h3 {
+  margin: 0;
+}
+
+.usage-rows {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.trend-row {
+  margin: 0.6rem 0;
+  height: 48px;
+  display: flex;
+  align-items: end;
+  gap: 0.35rem;
+}
+
+.trend-bar {
+  flex: 1;
+  height: 100%;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  display: flex;
+  align-items: end;
+  overflow: hidden;
+}
+
+.trend-bar-fill {
+  display: block;
+  width: 100%;
+  background: linear-gradient(180deg, rgba(0, 229, 255, 0.95), rgba(217, 28, 92, 0.75));
+}
+
+.usage-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.usage-row p {
+  margin: 0;
+}
+
 .quota-list,
 .key-list {
   display: flex;
@@ -376,6 +795,77 @@ onMounted(() => {
   border-radius: 12px;
   padding: 1rem;
   background: rgba(11, 16, 33, 0.45);
+}
+
+.quota-card-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.28rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
+}
+
+.status-pill--success {
+  color: var(--color-success);
+  background: rgba(16, 185, 129, 0.08);
+  border-color: rgba(16, 185, 129, 0.2);
+}
+
+.status-pill--warning {
+  color: var(--color-warning);
+  background: rgba(245, 158, 11, 0.08);
+  border-color: rgba(245, 158, 11, 0.2);
+}
+
+.status-pill--danger {
+  color: var(--color-danger);
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.2);
+}
+
+.status-pill--neutral {
+  color: var(--color-text-secondary);
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.quota-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.9rem;
+}
+
+.quota-progress-track {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.quota-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--color-teal-cyan), var(--color-berry-magenta));
+}
+
+.quota-progress-labels {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.85rem;
+  color: var(--color-text-secondary);
 }
 
 .quota-card-head {
@@ -409,6 +899,10 @@ onMounted(() => {
   font-weight: 700;
 }
 
+.metric-value--danger {
+  color: var(--color-danger);
+}
+
 .key-row {
   display: flex;
   justify-content: space-between;
@@ -435,6 +929,14 @@ onMounted(() => {
   border-color: rgba(239, 68, 68, 0.35);
 }
 
+.warning {
+  color: #ffe7b3;
+}
+
+.success {
+  color: #bff7df;
+}
+
 code {
   color: var(--color-teal-cyan);
 }
@@ -448,7 +950,12 @@ code {
   }
 
   .grid-two,
-  .quota-metrics {
+  .quota-metrics,
+  .usage-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .usage-filter-form {
     grid-template-columns: 1fr;
   }
 

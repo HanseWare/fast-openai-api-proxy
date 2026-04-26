@@ -31,6 +31,7 @@ OpenAI-compatible FastAPI proxy that routes one API surface to multiple backend 
 - Provider rate-limit sync from upstream `x-ratelimit-*` headers when enabled per provider, with proactive 429 short-circuiting when cached limits are exhausted
 - Optional admin + self-service APIs (`/api/admin/*`, `/api/*`)
 - Vue self-service account portal at `/account`
+- Self-service portal auto-detects OIDC vs static-token mode via `/api/auth-config`
 - Admin config APIs for providers, models, endpoints, aliases, and JSON import (`/api/admin/config/*`)
 - Optional access control middleware (API keys, protected endpoints, quotas)
 - Optional OIDC auth with role/group mapping
@@ -100,6 +101,7 @@ Key environment variables:
 - `FOAP_ACCESS_DB_PATH`: SQLite file for keys/quotas/rules
 
 Provider API keys are resolved from env vars configured in model JSON (`api_key_variable`).
+Self-service API keys are generated as `foap-<sha256(uuid4)>` and retried until the stored secret hash is unique in the DB.
 
 ## Admin and Self-Service APIs
 
@@ -122,7 +124,9 @@ When feature flags are enabled:
 
 - Self-service:
   - `GET /api/health`
+  - `GET /api/session`
   - `GET|POST|DELETE /api/keys...`
+  - `GET /api/usage/summary`
 
 ### Quota Overrides: List UX
 
