@@ -1,84 +1,85 @@
 <template>
   <div class="account-page">
-    <section class="hero glass-panel">
-      <div>
-        <p class="eyebrow">/account</p>
-        <h1>Self-Service Portal</h1>
-        <p class="muted">
-          Generate, review, and revoke your own FOAP API keys.
-          <span v-if="authModeHint"> {{ authModeHint }}</span>
-        </p>
-      </div>
-      <div class="hero-stats" v-if="isAuthenticated">
-        <div class="stat-card">
-          <span class="stat-value">{{ keys.length }}</span>
-          <span class="stat-label">Active Keys</span>
-        </div>
-        <div class="stat-card">
-          <span class="stat-value">{{ quotaSummary.configured }}</span>
-          <span class="stat-label">With Quota</span>
-        </div>
-        <div class="stat-card">
-          <span class="stat-value">{{ quotaSummary.totalUsed }}</span>
-          <span class="stat-label">Used / Window</span>
-        </div>
-        <div class="stat-card">
-          <span class="stat-value">{{ quotaSummary.totalRemaining }}</span>
-          <span class="stat-label">Remaining / Window</span>
-        </div>
-      </div>
-    </section>
+    <template v-if="!isAuthenticated">
+      <div class="login-container">
+        <div class="glass-panel login-box">
+          <div class="logo-area">
+            <div class="logo-circle"></div>
+            <h2>Self-Service Portal</h2>
+            <p>Generate, review, and revoke your API keys.</p>
+            <span class="mode-chip" :class="`mode-chip--${authModeClass}`" style="margin-top: 1rem;">{{ authModeLabel }}</span>
+          </div>
 
-    <section v-if="!isAuthenticated" class="glass-panel login-card">
-      <div class="login-header">
-        <div>
-          <h2>{{ loginTitle }}</h2>
-          <p class="muted">
-            {{ loginDescription }}
-          </p>
+          <!-- SSO Button -->
+          <button
+            v-if="oidcClient"
+            class="btn-sso"
+            type="button"
+            :disabled="loadingAuth"
+            @click="handleSsoLogin"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+            {{ ssoButtonLabel }}
+          </button>
+
+          <!-- Divider -->
+          <div v-if="oidcClient && authMode !== 'oidc-only'" class="divider">
+            <span>or use a token</span>
+          </div>
+
+          <!-- Token form -->
+          <form v-if="!oidcClient || authMode !== 'oidc-only'" class="login-form" @submit.prevent="handleLogin">
+            <div class="input-group">
+              <label for="account-token">{{ loginFieldLabel }}</label>
+              <input
+                id="account-token"
+                v-model="loginToken"
+                type="password"
+                :placeholder="loginPlaceholder"
+                autocomplete="current-password"
+                required
+              />
+            </div>
+            <p class="auth-guidance" v-if="authModeHint">{{ authModeHint }}</p>
+            <button class="btn-primary" type="submit" :disabled="loadingAuth">
+              {{ loadingAuth ? 'Verifying…' : 'Open Account Portal' }}
+            </button>
+            <p v-if="loginError" class="error-msg">{{ loginError }}</p>
+          </form>
         </div>
-        <span class="mode-chip" :class="`mode-chip--${authModeClass}`">{{ authModeLabel }}</span>
       </div>
-
-      <!-- SSO Button -->
-      <button
-        v-if="oidcClient"
-        class="btn-sso"
-        type="button"
-        :disabled="loadingAuth"
-        @click="handleSsoLogin"
-      >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
-        {{ ssoButtonLabel }}
-      </button>
-
-      <!-- Divider -->
-      <div v-if="oidcClient && authMode !== 'oidc-only'" class="divider">
-        <span>or use a token</span>
-      </div>
-
-      <!-- Token form -->
-      <form v-if="!oidcClient || authMode !== 'oidc-only'" class="login-form" @submit.prevent="handleLogin">
-        <div class="input-group">
-          <label for="account-token">{{ loginFieldLabel }}</label>
-          <input
-            id="account-token"
-            v-model="loginToken"
-            type="password"
-            :placeholder="loginPlaceholder"
-            autocomplete="current-password"
-            required
-          />
-        </div>
-        <p class="auth-guidance" v-if="authModeHint">{{ authModeHint }}</p>
-        <button class="btn-primary" type="submit" :disabled="loadingAuth">
-          {{ loadingAuth ? 'Verifying…' : 'Open Account Portal' }}
-        </button>
-        <p v-if="loginError" class="error-msg">{{ loginError }}</p>
-      </form>
-    </section>
+    </template>
 
     <template v-else>
+      <section class="hero glass-panel">
+        <div>
+          <p class="eyebrow">/account</p>
+          <h1>Self-Service Portal</h1>
+          <p class="muted">
+            Generate, review, and revoke your own FOAP API keys.
+            <span v-if="authModeHint"> {{ authModeHint }}</span>
+          </p>
+        </div>
+        <div class="hero-stats">
+          <div class="stat-card">
+            <span class="stat-value">{{ keys.length }}</span>
+            <span class="stat-label">Active Keys</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-value">{{ quotaSummary.configured }}</span>
+            <span class="stat-label">With Quota</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-value">{{ quotaSummary.totalUsed }}</span>
+            <span class="stat-label">Used / Window</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-value">{{ quotaSummary.totalRemaining }}</span>
+            <span class="stat-label">Remaining / Window</span>
+          </div>
+        </div>
+      </section>
+
       <section class="toolbar glass-panel">
         <div>
           <h2>Identity</h2>
@@ -612,6 +613,55 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+}
+
+.login-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 80vh;
+  padding: 1rem;
+}
+
+.login-box {
+  width: 100%;
+  max-width: 420px;
+  padding: 3rem 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  animation: slideUp 0.5s ease-out forwards;
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.logo-area {
+  text-align: center;
+}
+
+.logo-circle {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--color-berry-magenta), var(--color-teal-cyan));
+  margin: 0 auto 1rem;
+  box-shadow: 0 0 20px rgba(0, 229, 255, 0.4);
+}
+
+.logo-area h2 {
+  margin-bottom: 0.5rem;
+  background: -webkit-linear-gradient(0deg, #fff, var(--color-text-secondary));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.logo-area p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
 }
 
 .hero,

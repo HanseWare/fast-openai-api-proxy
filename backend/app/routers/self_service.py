@@ -115,6 +115,13 @@ async def oidc_callback(code: str, state: str, request: Request, oidc_session: O
         secure=True,
         samesite="lax",
     )
+    redirect_response.set_cookie(
+        key="foap_logged_in",
+        value="true",
+        max_age=86400,
+        secure=True,
+        samesite="lax",
+    )
     return redirect_response
 
 

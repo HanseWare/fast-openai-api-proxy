@@ -13,6 +13,7 @@ async function requestApi(basePath, endpoint, options = {}) {
   }
 
   const response = await fetch(`${basePath}${endpoint}`, {
+    credentials: 'include',
     ...options,
     headers
   })
@@ -37,4 +38,3 @@ export async function fetchApi(endpoint, options = {}) {
 export async function fetchSelfServiceApi(endpoint, options = {}) {
   return requestApi(SELF_SERVICE_API_BASE, endpoint, options)
 }
-

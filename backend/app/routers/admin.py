@@ -159,12 +159,19 @@ async def oidc_callback(code: str, state: str, request: Request, oidc_session: O
     session_store.delete(oidc_session or "")
 
     # Redirect to dashboard and set authenticated session cookie on the redirect response
-    redirect_response = RedirectResponse(url="/", status_code=302)
+    redirect_response = RedirectResponse(url="/admin", status_code=302)
     redirect_response.set_cookie(
         key="foap_session",
         value=auth_session_id,
         max_age=86400,
         httponly=True,
+        secure=True,
+        samesite="lax",
+    )
+    redirect_response.set_cookie(
+        key="foap_admin_logged_in",
+        value="true",
+        max_age=86400,
         secure=True,
         samesite="lax",
     )
