@@ -5,7 +5,7 @@ const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     {
-      path: '/account',
+      path: '/',
       name: 'account',
       component: () => import('../views/AccountView.vue')
     },
@@ -15,12 +15,12 @@ const router = createRouter({
       component: () => import('../views/OidcCallbackView.vue')
     },
     {
-      path: '/login',
-      name: 'login',
+      path: '/admin/login',
+      name: 'admin-login',
       component: () => import('../views/LoginView.vue')
     },
     {
-      path: '/',
+      path: '/admin',
       component: () => import('../views/DashboardLayout.vue'),
       meta: { requiresAuth: true },
       children: [
@@ -67,8 +67,8 @@ const router = createRouter({
 router.beforeEach((to, from, next) => {
   const authStore = useAuthStore()
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {
-    next({ name: 'login' })
-  } else if (to.name === 'login' && authStore.isAuthenticated) {
+    next({ name: 'admin-login' })
+  } else if (to.name === 'admin-login' && authStore.isAuthenticated) {
     next({ name: 'dashboard' })
   } else {
     next()

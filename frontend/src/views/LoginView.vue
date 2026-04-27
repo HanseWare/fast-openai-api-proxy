@@ -146,7 +146,7 @@ async function handleSsoLogin() {
   error.value = ''
   try {
     // BFF flow: get authorization URI from backend and redirect
-    const response = await fetchApi('/admin/oidc/login')
+    const response = await fetchApi('/oidc/login')
     if (response?.authorization_uri) {
       window.location.href = response.authorization_uri
     } else {

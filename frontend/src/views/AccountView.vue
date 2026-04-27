@@ -437,7 +437,7 @@ function handleLogout() {
   keys.value = []
   keyDetails.value = []
   usageSummary.value = null
-  router.replace({ name: 'login' })
+  router.replace({ path: '/' })
 }
 
 async function handleLogin() {

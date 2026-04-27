@@ -27,9 +27,9 @@ function goBack() {
   const target = sessionStorage.getItem('foap_oidc_target') || 'admin'
   sessionStorage.removeItem('foap_oidc_target')
   if (target === 'account') {
-    router.replace({ path: '/account' })
+    router.replace({ path: '/' })
   } else {
-    router.replace({ name: 'login' })
+    router.replace({ name: 'admin-login' })
   }
 }
 
@@ -72,7 +72,7 @@ onMounted(async () => {
     if (target === 'account') {
       await fetchSelfServiceApi('/health')
       sessionStorage.removeItem('foap_oidc_target')
-      router.replace({ path: '/account' })
+      router.replace({ path: '/' })
     } else {
       await fetchApi('/health')
       sessionStorage.removeItem('foap_oidc_target')
