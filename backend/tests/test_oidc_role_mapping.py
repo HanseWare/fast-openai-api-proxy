@@ -181,5 +181,41 @@ def test_admin_auth_config_snapshot_endpoint(monkeypatch):
     assert body["claim_mappings"]["admin_values"] == ["foap-admin", "ops-admin"]
 
 
+def test_admin_auth_config_includes_oidc_provider_display_name(monkeypatch):
+    _reset_store_tables()
+    monkeypatch.setenv("FOAP_ENABLE_OIDC_AUTH", "1")
+    monkeypatch.setenv("FOAP_ADMIN_TOKEN", "admin-token")
+    monkeypatch.setenv("FOAP_OIDC_ISSUER_URL", "https://id.example.com/realms/foap")
+    monkeypatch.setenv("FOAP_OIDC_CLIENT_ID", "foap-admin-ui")
+    monkeypatch.setenv("FOAP_OIDC_PROVIDER_DISPLAY_NAME", "Keycloak")
+
+    app = FastAPI()
+    app.include_router(admin_router)
+    client = TestClient(app)
+
+    response = client.get("/api/admin/auth-config", headers={"Authorization": "Bearer admin-token"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["oidc_client"]["client_id"] == "foap-admin-ui"
+    assert body["oidc_client"]["authority"] == "https://id.example.com/realms/foap"
+    assert body["oidc_client"]["display_name"] == "Keycloak"
+
+
+def test_self_service_auth_config_includes_oidc_provider_display_name(monkeypatch):
+    monkeypatch.setenv("FOAP_ENABLE_OIDC_AUTH", "1")
+    monkeypatch.setenv("FOAP_OIDC_ISSUER_URL", "https://id.example.com/realms/foap")
+    monkeypatch.setenv("FOAP_OIDC_CLIENT_ID", "foap-self-service")
+    monkeypatch.setenv("FOAP_OIDC_PROVIDER_DISPLAY_NAME", "Acme ID")
+
+    app = FastAPI()
+    app.include_router(self_service_router)
+    client = TestClient(app)
+
+    response = client.get("/api/auth-config")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["oidc_client"]["client_id"] == "foap-self-service"
+    assert body["oidc_client"]["display_name"] == "Acme ID"
+
 
 

@@ -123,12 +123,32 @@ You can enforce OIDC-only logins to harden the UI against static token usage:
 - `FOAP_SELF_SERVICE_OIDC_ONLY`: set to `true` to disable static user tokens.
 - `FOAP_ADMIN_TOKEN`: Static admin token (used as a fallback when `FOAP_ADMIN_OIDC_ONLY` is false).
 
-**SSO Browser Login (Authorization Code + PKCE):**
-If you set `FOAP_OIDC_CLIENT_ID`, both the Admin and Self-Service UIs will show a **"Sign in with SSO"** button that redirects to your Identity Provider for login. After successful authentication, the browser is redirected back to `/oidc-callback` where the token is automatically extracted and saved.
+**SSO Browser Login (Backend-for-Frontend + PKCE with `client_secret`):**
 
+FOAP implements a **Backend-for-Frontend (BFF)** OAuth2/OIDC flow. When you set `FOAP_OIDC_CLIENT_ID` and `FOAP_OIDC_CLIENT_SECRET`, both the Admin and Self-Service UIs will show a **"Sign in with SSO"** button.
+
+Flow:
+1. Browser clicks "Sign in with SSO"
+2. Frontend calls `POST /api/admin/oidc/login` or `POST /api/oidc/login`
+3. Backend generates PKCE state, stores it in an in-memory session, and returns the authorization URI
+4. Frontend redirects browser to Identity Provider
+5. User logs in and is redirected to `/api/admin/oidc/callback` or `/api/oidc/callback`
+6. Backend exchanges the authorization code for an access token using `client_secret`
+7. Backend validates the token, checks claims, and sets a **HttpOnly Secure session cookie**
+8. Browser is redirected to `/` (admin) or `/account` (self-service)
+
+Configuration:
 - `FOAP_OIDC_CLIENT_ID`: The OIDC client ID registered in your Identity Provider (e.g. `foap-admin-ui`).
+- `FOAP_OIDC_CLIENT_SECRET`: The OIDC client secret (kept only on the backend, never exposed to the browser).
+- `FOAP_OIDC_PROVIDER_DISPLAY_NAME`: Optional label for the login button (e.g., `"Keycloak"` → `"Sign in with Keycloak"`).
 
-> **Keycloak Setup**: Create a client with "Standard Flow" enabled and "Client authentication" set to **Off** (Public client). Add your FOAP frontend URLs (e.g. `https://foap.example.com/oidc-callback`) to the "Valid Redirect URIs" list.
+**Why BFF?**
+- Secrets remain server-side (never in browser code).
+- Sessions are cookie-based (stateful on backend).
+- More consistent with your existing JupyterHub, GitLab, N8N deployments.
+
+> **Keycloak Setup**: Create a client with "Standard Flow + PKCE" enabled and "Client authentication" set to **On** (Confidential client). Add your FOAP backend URLs (e.g. `https://foap.example.com/api/admin/oidc/callback`) to the "Valid Redirect URIs" list. Copy the client secret into `FOAP_OIDC_CLIENT_SECRET`.
+
 
 Provider API keys are resolved from env vars configured in model JSON (`api_key_variable`).
 Self-service API keys are generated as `foap-<sha256(uuid4)>` and retried until the stored secret hash is unique in the DB.

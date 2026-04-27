@@ -109,6 +109,7 @@ class AuthClaimMappings(BaseModel):
 class OidcClientConfig(BaseModel):
     client_id: str
     authority: str
+    display_name: str | None = None
 
 
 class AuthModeSnapshot(BaseModel):

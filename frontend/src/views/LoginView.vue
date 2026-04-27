@@ -17,7 +17,7 @@
         @click="handleSsoLogin"
       >
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
-        Sign in with SSO
+        {{ ssoButtonLabel }}
       </button>
 
       <!-- Divider (shown when both SSO and token login are available) -->
@@ -61,7 +61,6 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { fetchApi } from '../api'
-import { startOidcLogin } from '../services/oidc'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -73,6 +72,10 @@ const authConfig = ref(null)
 
 const authMode = computed(() => authConfig.value?.admin?.mode || 'loading')
 const oidcClient = computed(() => authConfig.value?.oidc_client || null)
+const ssoButtonLabel = computed(() => {
+  const providerName = oidcClient.value?.display_name?.trim()
+  return providerName ? `${providerName}` : 'Sign in with SSO'
+})
 
 const authModeLabel = computed(() => {
   switch (authMode.value) {
@@ -142,7 +145,14 @@ async function handleSsoLogin() {
   loading.value = true
   error.value = ''
   try {
-    await startOidcLogin(oidcClient.value, 'admin')
+    // BFF flow: get authorization URI from backend and redirect
+    const response = await fetchApi('/admin/oidc/login')
+    if (response?.authorization_uri) {
+      window.location.href = response.authorization_uri
+    } else {
+      error.value = 'Failed to initiate SSO login.'
+      loading.value = false
+    }
   } catch (err) {
     error.value = 'Failed to start SSO login. Check OIDC configuration.'
     loading.value = false

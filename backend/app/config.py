@@ -105,6 +105,22 @@ def get_oidc_client_id() -> str | None:
     return value or None
 
 
+def get_oidc_client_secret() -> str | None:
+    value = os.getenv("FOAP_OIDC_CLIENT_SECRET")
+    if value is None:
+        return None
+    value = value.strip()
+    return value or None
+
+
+def get_oidc_provider_display_name() -> str | None:
+    value = os.getenv("FOAP_OIDC_PROVIDER_DISPLAY_NAME")
+    if value is None:
+        return None
+    value = value.strip()
+    return value or None
+
+
 def get_auth_configuration_errors() -> list[str]:
     errors: list[str] = []
 
@@ -160,6 +176,9 @@ def get_auth_mode_snapshot() -> dict:
             "client_id": get_oidc_client_id(),
             "authority": get_oidc_issuer_url(),
         }
+        display_name = get_oidc_provider_display_name()
+        if display_name:
+            oidc_client["display_name"] = display_name
 
     return {
         "admin": {
@@ -182,5 +201,4 @@ def get_auth_mode_snapshot() -> dict:
         },
         "oidc_client": oidc_client,
     }
-
 
