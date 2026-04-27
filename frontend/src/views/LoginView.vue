@@ -3,7 +3,7 @@
     <div class="glass-panel login-box">
       <div class="logo-area">
         <div class="logo-circle"></div>
-        <h2>FOAP Admin</h2>
+        <h2>API Portal</h2>
         <p>Hanseatic Tradition. Modern Tech.</p>
         <span class="mode-chip" :class="`mode-chip--${authModeClass}`" style="margin-top: 1rem;">{{ authModeLabel }}</span>
       </div>
