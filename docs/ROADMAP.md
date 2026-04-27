@@ -4,24 +4,24 @@ This document outlines the architecture, tasks, and boundaries for the upcoming 
 
 ---
 
-## 🎯 Phase 3: Identity, Quotas & Self-Service (The User Layer)
+## 🎯 Phase 3: Identity, Quotas & Self-Service (The User Layer) - [x] COMPLETE
 
 **Goal:** Finalize the authentication/OIDC flow, enforce actual provider rate limits asynchronously, and build the Vue.js Self-Service portal so users can generate their own API keys and monitor their usage without admin intervention.
 
 ### 1. Provider Rate-Limit Synchronization (Backend)
-- **Asynchronous Header Processing:** Implement background tasks or middleware to parse `x-ratelimit-*` headers from upstream provider responses (e.g., OpenAI, Anthropic).
-- **Global Provider Throttling:** Update the `provider_ratelimits` table in SQLite dynamically.
-- **Smart Backoff:** When `sync_provider_ratelimits` is enabled, FOAP will proactively `429 Too Many Requests` clients if the upstream provider limit is known to be exhausted, saving network roundtrips and preventing IP bans.
+- [x] **Asynchronous Header Processing:** Implement background tasks or middleware to parse `x-ratelimit-*` headers from upstream provider responses (e.g., OpenAI, Anthropic).
+- [x] **Global Provider Throttling:** Update the `provider_ratelimits` table in SQLite dynamically.
+- [x] **Smart Backoff:** When `sync_provider_ratelimits` is enabled, FOAP will proactively `429 Too Many Requests` clients if the upstream provider limit is known to be exhausted, saving network roundtrips and preventing IP bans.
 
 ### 2. OIDC & Auth Hardening (Backend)
-- Finalize the `oidc_auth.py` flows.
-- Ensure seamless mapping of OIDC roles/groups to FOAP access control logic.
-- Complete any remaining admin API flows around quota operations and overrides.
+- [x] Finalize the `oidc_auth.py` flows.
+- [x] Ensure seamless mapping of OIDC roles/groups to FOAP access control logic.
+- [x] Complete any remaining admin API flows around quota operations and overrides.
 
 ### 3. Self-Service Portal (Frontend - `/account`)
-- **Login/Session UX:** Auth-aware login screen that gracefully handles OIDC redirects vs. static token modes.
-- **API Key Management:** UI for users to generate, view, and revoke their personal FOAP API keys.
-- **Quota Dashboard:** A clean, visual dashboard showing the user's current usage vs. their assigned quotas (minute/hour/day limits) across different models.
+- [x] **Login/Session UX:** Auth-aware login screen that gracefully handles OIDC redirects vs. static token modes.
+- [x] **API Key Management:** UI for users to generate, view, and revoke their personal FOAP API keys.
+- [x] **Quota Dashboard:** A clean, visual dashboard showing the user's current usage vs. their assigned quotas (minute/hour/day limits) across different models.
 
 ---
 

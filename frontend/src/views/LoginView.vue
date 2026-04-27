@@ -2,26 +2,28 @@
   <div class="login-container">
     <div class="glass-panel login-box">
       <div class="logo-area">
-        <!-- Placeholder for Logo -->
         <div class="logo-circle"></div>
         <h2>FOAP Admin</h2>
         <p>Hanseatic Tradition. Modern Tech.</p>
+        <span class="mode-chip" :class="`mode-chip--${authModeClass}`" style="margin-top: 1rem;">{{ authModeLabel }}</span>
       </div>
 
       <form @submit.prevent="handleLogin" class="login-form">
         <div class="input-group">
-          <label for="token">Admin Token</label>
+          <label for="token">{{ loginFieldLabel }}</label>
           <input 
             type="password" 
             id="token" 
             v-model="token" 
-            placeholder="Enter your FOAP Admin Token"
+            :placeholder="loginPlaceholder"
             required
             autocomplete="current-password"
           />
         </div>
+        
+        <p class="auth-guidance" v-if="authModeHint">{{ authModeHint }}</p>
 
-        <button type="submit" class="btn-primary" :disabled="loading">
+        <button type="submit" class="btn-primary" :disabled="loading || authMode === 'loading'">
           {{ loading ? 'Authenticating...' : 'Sign In' }}
         </button>
 
@@ -32,7 +34,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { fetchApi } from '../api'
@@ -43,13 +45,63 @@ const authStore = useAuthStore()
 const token = ref('')
 const loading = ref(false)
 const error = ref('')
+const authConfig = ref(null)
+
+const authMode = computed(() => authConfig.value?.admin?.mode || 'loading')
+
+const authModeLabel = computed(() => {
+  switch (authMode.value) {
+    case 'oidc-only': return 'OIDC Admin Only'
+    case 'hybrid': return 'OIDC + Token Admin'
+    case 'token-hash-only': return 'Static Token Admin'
+    default: return 'Loading Auth Mode...'
+  }
+})
+
+const authModeClass = computed(() => {
+  switch (authMode.value) {
+    case 'oidc-only': return 'oidc'
+    case 'hybrid': return 'hybrid'
+    case 'token-hash-only': return 'token'
+    default: return 'loading'
+  }
+})
+
+const authModeHint = computed(() => {
+  switch (authMode.value) {
+    case 'oidc-only': return 'Admin portal requires an OIDC-issued access token with admin roles.'
+    case 'hybrid': return 'You can use an OIDC access token or a static FOAP admin token.'
+    case 'token-hash-only': return 'Use your static FOAP admin token to access the dashboard.'
+    default: return 'Loading...'
+  }
+})
+
+const loginFieldLabel = computed(() => {
+  if (authMode.value === 'oidc-only') return 'OIDC Access Token'
+  if (authMode.value === 'hybrid') return 'OIDC or Admin Token'
+  return 'Admin Token'
+})
+
+const loginPlaceholder = computed(() => {
+  if (authMode.value === 'oidc-only') return 'Paste your OIDC access token'
+  if (authMode.value === 'hybrid') return 'Paste your OIDC or FOAP Admin token'
+  return 'Enter your FOAP Admin Token'
+})
+
+async function loadAuthConfig() {
+  try {
+    authConfig.value = await fetchApi('/auth-config')
+  } catch (err) {
+    authConfig.value = { admin: { mode: 'loading' } }
+  }
+}
 
 async function handleLogin() {
   loading.value = true
   error.value = ''
   
   // Temporarily set token to verify it
-  authStore.setToken(token.value)
+  authStore.setToken(token.value.trim())
   
   try {
     await fetchApi('/health')
@@ -57,11 +109,15 @@ async function handleLogin() {
     router.push({ name: 'dashboard' })
   } catch (err) {
     authStore.logout()
-    error.value = 'Invalid or expired token.'
+    error.value = 'Invalid or expired token. Or missing admin claims.'
   } finally {
     loading.value = false
   }
 }
+
+onMounted(() => {
+  loadAuthConfig()
+})
 </script>
 
 <style scoped>
@@ -137,5 +193,38 @@ async function handleLogin() {
   font-size: 0.85rem;
   text-align: center;
   margin: 0;
+}
+
+.mode-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.mode-chip--oidc,
+.mode-chip--hybrid {
+  color: var(--color-teal-cyan);
+  background: rgba(0, 229, 255, 0.08);
+  border-color: rgba(0, 229, 255, 0.2);
+}
+
+.mode-chip--token,
+.mode-chip--loading {
+  color: var(--color-text-secondary);
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.auth-guidance {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.85rem;
+  text-align: center;
 }
 </style>

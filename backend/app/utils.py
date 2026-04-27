@@ -10,6 +10,11 @@ from starlette.background import BackgroundTask
 from access_store import store
 from auth import can_request
 from models_handler import handler as models
+from responses_translator import (
+    translate_request_to_chat_completions,
+    translate_response_to_responses_api,
+    translate_stream_to_responses_api,
+)
 
 __name__ = "hanseware.fast-openai-api-proxy.utils"
 
@@ -135,7 +140,17 @@ async def handle_request(request: Request, api_path: str):
     # Replace the model name in the request body with the target model name
     body['model'] = model_data['target_model_name']
 
-    target_url = model_data['target_base_url'] + '/' + api_path
+    # Responses API Translation Hook
+    is_responses_api = api_path == "v1/responses"
+    original_req_body = dict(body)
+    
+    if is_responses_api:
+        body = translate_request_to_chat_completions(body)
+        target_api_path = "v1/chat/completions"
+    else:
+        target_api_path = api_path
+
+    target_url = model_data['target_base_url'] + '/' + target_api_path
     max_response_time = model_data.get('request_timeout', 60)
     custom_timeout = httpx.Timeout(max_response_time, connect=max_response_time, read=max_response_time, pool=max_response_time)
 
@@ -219,15 +234,38 @@ async def handle_request(request: Request, api_path: str):
         stream_headers = _proxy_response_headers(response.headers)
         stream_headers.pop("content-type", None)
 
-        return StreamingResponse(
-            response.aiter_bytes(),
-            status_code=response.status_code,
-            media_type=media_type,
-            headers=stream_headers,
-            background=BackgroundTask(_close_stream_resources_async, response, client),
-        )
+        if is_responses_api:
+            translated_stream = translate_stream_to_responses_api(
+                response.aiter_lines(),
+                model_name=model_data['target_model_name'],
+                req_body=original_req_body
+            )
+            return StreamingResponse(
+                translated_stream,
+                status_code=response.status_code,
+                media_type=media_type,
+                headers=stream_headers,
+                background=BackgroundTask(_close_stream_resources_async, response, client),
+            )
+        else:
+            return StreamingResponse(
+                response.aiter_bytes(),
+                status_code=response.status_code,
+                media_type=media_type,
+                headers=stream_headers,
+                background=BackgroundTask(_close_stream_resources_async, response, client),
+            )
     else:
         await client.aclose()
+        
+        if is_responses_api and response.status_code < 400:
+            try:
+                chat_json = response.json()
+                resp_json = translate_response_to_responses_api(chat_json)
+                return JSONResponse(content=resp_json, status_code=response.status_code)
+            except Exception as exc:
+                logger.error(f"Error translating response: {exc}")
+                
         return response
 
 

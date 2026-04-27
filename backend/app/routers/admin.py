@@ -68,7 +68,7 @@ async def admin_health(_: None = Depends(require_admin)):
 
 
 @router.get("/auth-config", response_model=AuthModeSnapshot, summary="Get active auth mode and claim mappings")
-async def get_auth_config(_: None = Depends(require_admin)):
+async def get_auth_config():
     return get_auth_mode_snapshot()
 
 
