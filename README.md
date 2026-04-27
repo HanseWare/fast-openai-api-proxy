@@ -95,10 +95,40 @@ Key environment variables:
 - `FOAP_ENABLE_SELF_SERVICE_API`: enable `/api/*` self-service endpoints
 - `FOAP_ENABLE_ACCESS_CONTROL`: enable access middleware enforcement
 - `FOAP_ENABLE_QUOTA_DECISION_TRACE`: emits `X-FOAP-Quota-Decision`
-- `FOAP_ENABLE_OIDC_AUTH`: enable OIDC token validation
-- `FOAP_ADMIN_TOKEN`: static admin token (unless OIDC-only mode)
-- `FOAP_ADMIN_OIDC_ONLY`, `FOAP_SELF_SERVICE_OIDC_ONLY`: enforce OIDC-only auth modes
 - `FOAP_ACCESS_DB_PATH`: SQLite file for keys/quotas/rules
+
+### OIDC & Identity Configuration
+
+FOAP supports both static token authentication and OIDC (OpenID Connect) for Identity Provider integrations (e.g. Keycloak, Auth0). 
+
+- `FOAP_ENABLE_OIDC_AUTH`: set to `true` to enable OIDC token validation
+- `FOAP_OIDC_ISSUER_URL`: The issuer URL (e.g. `https://keycloak.example.com/realms/foap`)
+- `FOAP_OIDC_JWKS_URL`: (Optional) Explicit JWKS URL, otherwise auto-discovered via `.well-known`
+- `FOAP_OIDC_AUDIENCE`: (Optional) Required audience claim
+
+**Configuring Administrators & Users:**
+Access to the Admin Dashboard and Self-Service Portal is determined by claim mappings:
+
+- `FOAP_OIDC_ROLE_CLAIM`: The JWT claim to check for Admin access (default: `roles`)
+- `FOAP_OIDC_ADMIN_VALUES`: Comma-separated list of values required for Admin access (default: `foap-admin`)
+- `FOAP_OIDC_GROUP_CLAIM`: The JWT claim to check for Self-Service portal access (default: `groups`)
+- `FOAP_OIDC_SELF_SERVICE_VALUES`: Comma-separated list of values required for Self-Service access (default: `foap-user`)
+- `FOAP_OIDC_SUBJECT_CLAIM`: The JWT claim used as the unique user identifier to scope API keys (default: `sub`)
+
+> **Note on Nested Claims**: FOAP supports dot-notation for nested claims. For example, if your Identity Provider places roles inside `realm_access: { roles: [...] }`, you can set `FOAP_OIDC_ROLE_CLAIM="realm_access.roles"`.
+
+**Authentication Modes:**
+You can enforce OIDC-only logins to harden the UI against static token usage:
+- `FOAP_ADMIN_OIDC_ONLY`: set to `true` to disable static admin tokens.
+- `FOAP_SELF_SERVICE_OIDC_ONLY`: set to `true` to disable static user tokens.
+- `FOAP_ADMIN_TOKEN`: Static admin token (used as a fallback when `FOAP_ADMIN_OIDC_ONLY` is false).
+
+**SSO Browser Login (Authorization Code + PKCE):**
+If you set `FOAP_OIDC_CLIENT_ID`, both the Admin and Self-Service UIs will show a **"Sign in with SSO"** button that redirects to your Identity Provider for login. After successful authentication, the browser is redirected back to `/oidc-callback` where the token is automatically extracted and saved.
+
+- `FOAP_OIDC_CLIENT_ID`: The OIDC client ID registered in your Identity Provider (e.g. `foap-admin-ui`).
+
+> **Keycloak Setup**: Create a client with "Standard Flow" enabled and "Client authentication" set to **Off** (Public client). Add your FOAP frontend URLs (e.g. `https://foap.example.com/oidc-callback`) to the "Valid Redirect URIs" list.
 
 Provider API keys are resolved from env vars configured in model JSON (`api_key_variable`).
 Self-service API keys are generated as `foap-<sha256(uuid4)>` and retried until the stored secret hash is unique in the DB.
@@ -150,6 +180,6 @@ When feature flags are enabled:
 - Phase 1: complete
 - Phase 2: complete
 - Phase 2.5: complete
-- Phase 3: in progress — identity, quotas, self-service portal, and provider rate-limit hardening
+- Phase 3: complete — identity, quotas, self-service portal, and provider rate-limit hardening
+- Phase 3.5: complete — stateless Responses API payload translation
 - Phase 4: planned — stateful intelligence, PostgreSQL, and vector-store features
-

@@ -97,6 +97,14 @@ def get_oidc_self_service_values() -> list[str]:
     return _env_csv("FOAP_OIDC_SELF_SERVICE_VALUES", "")
 
 
+def get_oidc_client_id() -> str | None:
+    value = os.getenv("FOAP_OIDC_CLIENT_ID")
+    if value is None:
+        return None
+    value = value.strip()
+    return value or None
+
+
 def get_auth_configuration_errors() -> list[str]:
     errors: list[str] = []
 
@@ -146,6 +154,13 @@ def _self_service_auth_mode() -> str:
 
 
 def get_auth_mode_snapshot() -> dict:
+    oidc_client = None
+    if is_oidc_auth_enabled() and get_oidc_client_id() and get_oidc_issuer_url():
+        oidc_client = {
+            "client_id": get_oidc_client_id(),
+            "authority": get_oidc_issuer_url(),
+        }
+
     return {
         "admin": {
             "mode": _admin_auth_mode(),
@@ -165,6 +180,7 @@ def get_auth_mode_snapshot() -> dict:
             "admin_values": get_oidc_admin_values(),
             "self_service_values": get_oidc_self_service_values(),
         },
+        "oidc_client": oidc_client,
     }
 
 

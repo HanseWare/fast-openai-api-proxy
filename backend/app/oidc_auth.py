@@ -28,6 +28,19 @@ def _normalize_claim_values(value: Any) -> set[str]:
     return set()
 
 
+def _get_nested_claim(claims: dict[str, Any], claim_path: str) -> Any:
+    if not claim_path:
+        return None
+    keys = claim_path.split('.')
+    current = claims
+    for key in keys:
+        if isinstance(current, dict):
+            current = current.get(key)
+        else:
+            return None
+    return current
+
+
 def _discover_jwks_url(issuer_url: str) -> str:
     well_known = issuer_url.rstrip("/") + "/.well-known/openid-configuration"
     with urlopen(well_known, timeout=5) as response:
@@ -91,8 +104,8 @@ def get_oidc_claims(token: Optional[str]) -> Optional[dict[str, Any]]:
 
 def _claim_values_for_mapping(claims: dict[str, Any]) -> set[str]:
     values = set()
-    values |= _normalize_claim_values(claims.get(get_oidc_role_claim()))
-    values |= _normalize_claim_values(claims.get(get_oidc_group_claim()))
+    values |= _normalize_claim_values(_get_nested_claim(claims, get_oidc_role_claim()))
+    values |= _normalize_claim_values(_get_nested_claim(claims, get_oidc_group_claim()))
     return values
 
 
@@ -111,8 +124,7 @@ def has_admin_access(claims: dict[str, Any]) -> bool:
 
 
 def get_owner_id_from_claims(claims: dict[str, Any]) -> Optional[str]:
-    subject_value = claims.get(get_oidc_subject_claim())
-    if not isinstance(subject_value, str) or not subject_value.strip():
+    subject_value = _get_nested_claim(claims, get_oidc_subject_claim())
+    if not subject_value or not isinstance(subject_value, str):
         return None
     return f"oidc:{subject_value.strip()}"
-

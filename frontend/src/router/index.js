@@ -10,6 +10,11 @@ const router = createRouter({
       component: () => import('../views/AccountView.vue')
     },
     {
+      path: '/oidc-callback',
+      name: 'oidc-callback',
+      component: () => import('../views/OidcCallbackView.vue')
+    },
+    {
       path: '/login',
       name: 'login',
       component: () => import('../views/LoginView.vue')

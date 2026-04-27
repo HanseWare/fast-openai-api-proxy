@@ -12,7 +12,8 @@ router = APIRouter(prefix="/api", tags=["self-service"])
 
 @router.get("/auth-config", summary="Get self-service auth mode")
 async def self_service_auth_config():
-    snapshot = get_auth_mode_snapshot()["self_service"]
+    full_snapshot = get_auth_mode_snapshot()
+    snapshot = full_snapshot["self_service"]
     mode = snapshot["mode"]
     if mode == "oidc-only":
         login_hint = "Use an OIDC access token from your identity provider."
@@ -21,7 +22,7 @@ async def self_service_auth_config():
     else:
         login_hint = "Use your static FOAP bearer token."
 
-    return {**snapshot, "login_hint": login_hint}
+    return {**snapshot, "login_hint": login_hint, "oidc_client": full_snapshot.get("oidc_client")}
 
 def _require_user_token(authorization: Optional[str]) -> str:
     token = extract_bearer_token(authorization)

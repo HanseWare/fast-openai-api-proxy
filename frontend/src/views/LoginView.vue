@@ -8,7 +8,25 @@
         <span class="mode-chip" :class="`mode-chip--${authModeClass}`" style="margin-top: 1rem;">{{ authModeLabel }}</span>
       </div>
 
-      <form @submit.prevent="handleLogin" class="login-form">
+      <!-- SSO Button -->
+      <button
+        v-if="oidcClient"
+        class="btn-sso"
+        type="button"
+        :disabled="loading || authMode === 'loading'"
+        @click="handleSsoLogin"
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+        Sign in with SSO
+      </button>
+
+      <!-- Divider (shown when both SSO and token login are available) -->
+      <div v-if="oidcClient && authMode !== 'oidc-only'" class="divider">
+        <span>or use a token</span>
+      </div>
+
+      <!-- Token form (hidden when OIDC-only and SSO is available) -->
+      <form v-if="!oidcClient || authMode !== 'oidc-only'" @submit.prevent="handleLogin" class="login-form">
         <div class="input-group">
           <label for="token">{{ loginFieldLabel }}</label>
           <input 
@@ -29,6 +47,11 @@
 
         <p v-if="error" class="error-msg">{{ error }}</p>
       </form>
+
+      <!-- OIDC-only guidance when no SSO config -->
+      <div v-if="!oidcClient && authMode === 'oidc-only'" class="login-form">
+        <p class="auth-guidance">OIDC is required but the server has not been configured with a Client ID. Please set <code>FOAP_OIDC_CLIENT_ID</code>.</p>
+      </div>
     </div>
   </div>
 </template>
@@ -38,6 +61,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { fetchApi } from '../api'
+import { startOidcLogin } from '../services/oidc'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -48,12 +72,13 @@ const error = ref('')
 const authConfig = ref(null)
 
 const authMode = computed(() => authConfig.value?.admin?.mode || 'loading')
+const oidcClient = computed(() => authConfig.value?.oidc_client || null)
 
 const authModeLabel = computed(() => {
   switch (authMode.value) {
     case 'oidc-only': return 'OIDC Admin Only'
     case 'hybrid': return 'OIDC + Token Admin'
-    case 'token-hash-only': return 'Static Token Admin'
+    case 'static-token-only': return 'Static Token Admin'
     default: return 'Loading Auth Mode...'
   }
 })
@@ -62,7 +87,7 @@ const authModeClass = computed(() => {
   switch (authMode.value) {
     case 'oidc-only': return 'oidc'
     case 'hybrid': return 'hybrid'
-    case 'token-hash-only': return 'token'
+    case 'static-token-only': return 'token'
     default: return 'loading'
   }
 })
@@ -71,7 +96,7 @@ const authModeHint = computed(() => {
   switch (authMode.value) {
     case 'oidc-only': return 'Admin portal requires an OIDC-issued access token with admin roles.'
     case 'hybrid': return 'You can use an OIDC access token or a static FOAP admin token.'
-    case 'token-hash-only': return 'Use your static FOAP admin token to access the dashboard.'
+    case 'static-token-only': return 'Use your static FOAP admin token to access the dashboard.'
     default: return 'Loading...'
   }
 })
@@ -100,17 +125,26 @@ async function handleLogin() {
   loading.value = true
   error.value = ''
   
-  // Temporarily set token to verify it
   authStore.setToken(token.value.trim())
   
   try {
     await fetchApi('/health')
-    // If health passes, token is valid
     router.push({ name: 'dashboard' })
   } catch (err) {
     authStore.logout()
     error.value = 'Invalid or expired token. Or missing admin claims.'
   } finally {
+    loading.value = false
+  }
+}
+
+async function handleSsoLogin() {
+  loading.value = true
+  error.value = ''
+  try {
+    await startOidcLogin(oidcClient.value, 'admin')
+  } catch (err) {
+    error.value = 'Failed to start SSO login. Check OIDC configuration.'
     loading.value = false
   }
 }
@@ -226,5 +260,50 @@ onMounted(() => {
   color: var(--color-text-secondary);
   font-size: 0.85rem;
   text-align: center;
+}
+
+.btn-sso {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.85rem 1.5rem;
+  border: 1px solid rgba(0, 229, 255, 0.3);
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(0, 229, 255, 0.08), rgba(162, 89, 255, 0.08));
+  color: var(--color-teal-cyan);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.25s ease;
+}
+
+.btn-sso:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(0, 229, 255, 0.15), rgba(162, 89, 255, 0.15));
+  border-color: rgba(0, 229, 255, 0.5);
+  box-shadow: 0 0 20px rgba(0, 229, 255, 0.15);
+  transform: translateY(-1px);
+}
+
+.btn-sso:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+}
+
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
 }
 </style>

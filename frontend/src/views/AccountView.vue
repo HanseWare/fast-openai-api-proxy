@@ -39,7 +39,26 @@
         </div>
         <span class="mode-chip" :class="`mode-chip--${authModeClass}`">{{ authModeLabel }}</span>
       </div>
-      <form class="login-form" @submit.prevent="handleLogin">
+
+      <!-- SSO Button -->
+      <button
+        v-if="oidcClient"
+        class="btn-sso"
+        type="button"
+        :disabled="loadingAuth"
+        @click="handleSsoLogin"
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+        Sign in with SSO
+      </button>
+
+      <!-- Divider -->
+      <div v-if="oidcClient && authMode !== 'oidc-only'" class="divider">
+        <span>or use a token</span>
+      </div>
+
+      <!-- Token form -->
+      <form v-if="!oidcClient || authMode !== 'oidc-only'" class="login-form" @submit.prevent="handleLogin">
         <div class="input-group">
           <label for="account-token">{{ loginFieldLabel }}</label>
           <input
@@ -225,6 +244,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { fetchSelfServiceApi } from '../api'
+import { startOidcLogin } from '../services/oidc'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -247,6 +267,7 @@ const usageWindowSize = ref(6)
 const isAuthenticated = computed(() => authStore.isAuthenticated)
 
 const authMode = computed(() => authConfig.value?.mode || 'loading')
+const oidcClient = computed(() => authConfig.value?.oidc_client || null)
 const authModeLabel = computed(() => {
   switch (authMode.value) {
     case 'oidc-only':
@@ -428,6 +449,17 @@ async function handleLogin() {
     loginError.value = err instanceof Error ? err.message : 'Unable to open account portal.'
     authStore.logout()
   } finally {
+    loadingAuth.value = false
+  }
+}
+
+async function handleSsoLogin() {
+  loadingAuth.value = true
+  loginError.value = ''
+  try {
+    await startOidcLogin(oidcClient.value, 'account')
+  } catch (err) {
+    loginError.value = 'Failed to start SSO login. Check OIDC configuration.'
     loadingAuth.value = false
   }
 }
@@ -963,6 +995,53 @@ code {
     width: 100%;
     flex-direction: column;
   }
+}
+
+.btn-sso {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.85rem 1.5rem;
+  border: 1px solid rgba(0, 229, 255, 0.3);
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(0, 229, 255, 0.08), rgba(162, 89, 255, 0.08));
+  color: var(--color-teal-cyan);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  margin-top: 1rem;
+}
+
+.btn-sso:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(0, 229, 255, 0.15), rgba(162, 89, 255, 0.15));
+  border-color: rgba(0, 229, 255, 0.5);
+  box-shadow: 0 0 20px rgba(0, 229, 255, 0.15);
+  transform: translateY(-1px);
+}
+
+.btn-sso:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+  margin: 0.5rem 0;
+}
+
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
 }
 </style>
 

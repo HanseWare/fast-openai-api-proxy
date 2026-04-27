@@ -106,9 +106,15 @@ class AuthClaimMappings(BaseModel):
     self_service_values: list[str]
 
 
+class OidcClientConfig(BaseModel):
+    client_id: str
+    authority: str
+
+
 class AuthModeSnapshot(BaseModel):
     admin: AuthModeSection
     self_service: AuthModeSection
     claim_mappings: AuthClaimMappings
+    oidc_client: OidcClientConfig | None = None
 
 
