@@ -6,11 +6,32 @@ from urllib.request import urlopen, Request
 from urllib.parse import urlencode
 import secrets
 
+from fastapi import Request as FastAPIRequest
+
 from config import (
     get_oidc_issuer_url,
     get_oidc_client_id,
     get_oidc_client_secret,
 )
+
+
+def get_base_url_from_request(request: FastAPIRequest) -> str:
+    """Extract base URL from request, respecting X-Forwarded-Proto header for reverse proxies."""
+    # Check for X-Forwarded-Proto header (set by reverse proxy like Nginx)
+    proto = request.headers.get("X-Forwarded-Proto")
+    if not proto:
+        proto = request.url.scheme
+
+    # Check for X-Forwarded-Host header
+    host = request.headers.get("X-Forwarded-Host")
+    if not host:
+        host = request.headers.get("Host")
+    if not host:
+        host = request.url.hostname
+        if request.url.port:
+            host = f"{host}:{request.url.port}"
+
+    return f"{proto}://{host}"
 
 
 def _get_token_endpoint(issuer_url: str) -> str:
@@ -137,7 +158,4 @@ def exchange_code_for_token(
 def validate_state(stored_state: str, provided_state: str) -> bool:
     """Validate that the state matches (CSRF protection)."""
     return stored_state == provided_state
-
-
-
 

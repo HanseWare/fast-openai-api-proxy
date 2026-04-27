@@ -3,7 +3,7 @@
     <div class="glass-panel callback-box">
       <div class="logo-circle"></div>
       <h2 v-if="!error">Completing sign-in…</h2>
-      <h2 v-else>Sign-in failed</h2>
+      <h2 v-else class="error-title">Sign-in failed</h2>
       <p v-if="error" class="error-msg">{{ error }}</p>
       <p v-if="error" class="muted">
         <a href="#" @click.prevent="goBack">Return to login</a>
@@ -16,7 +16,6 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
-import { completeOidcLogin } from '../services/oidc'
 import { fetchApi, fetchSelfServiceApi } from '../api'
 
 const router = useRouter()
@@ -27,7 +26,7 @@ function goBack() {
   const target = sessionStorage.getItem('foap_oidc_target') || 'admin'
   sessionStorage.removeItem('foap_oidc_target')
   if (target === 'account') {
-    router.replace({ path: '/' })
+    router.replace({ path: '/account' })
   } else {
     router.replace({ name: 'admin-login' })
   }
@@ -36,51 +35,24 @@ function goBack() {
 onMounted(async () => {
   const target = sessionStorage.getItem('foap_oidc_target') || 'admin'
 
-  // Fetch the OIDC client config so we can complete the flow
-  let oidcClient = null
-  try {
-    const config = target === 'account'
-      ? await fetchSelfServiceApi('/auth-config')
-      : await fetchApi('/auth-config')
-    oidcClient = config?.oidc_client
-  } catch (err) {
-    // Fallback: try the other endpoint
-    try {
-      const config = await fetchApi('/auth-config')
-      oidcClient = config?.oidc_client
-    } catch (err2) {
-      error.value = 'Unable to load auth configuration.'
-      return
-    }
-  }
-
-  if (!oidcClient) {
-    error.value = 'OIDC is not configured on this server.'
-    return
-  }
-
-  const accessToken = await completeOidcLogin(oidcClient)
-  if (!accessToken) {
-    error.value = 'Failed to extract access token from identity provider response.'
-    return
-  }
-
-  // Save token and verify it works
-  authStore.setToken(accessToken)
+  // In the BFF pattern, the backend handles the callback and redirects here.
+  // We should already have a foap_session cookie if authentication succeeded.
+  // Try to verify we have a valid session.
 
   try {
     if (target === 'account') {
       await fetchSelfServiceApi('/health')
       sessionStorage.removeItem('foap_oidc_target')
-      router.replace({ path: '/' })
+      router.replace({ path: '/account' })
     } else {
       await fetchApi('/health')
       sessionStorage.removeItem('foap_oidc_target')
       router.replace({ name: 'dashboard' })
     }
   } catch (err) {
-    authStore.logout()
-    error.value = 'Token is valid but you do not have the required roles/groups for this portal.'
+    // The backend callback likely failed - show error
+    error.value = 'Authentication failed. You may not have the required roles or permissions.'
+    console.error('Session validation failed after OIDC callback:', err)
   }
 })
 </script>
@@ -129,6 +101,10 @@ onMounted(async () => {
   background: -webkit-linear-gradient(0deg, #fff, var(--color-text-secondary));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
+}
+
+.error-title {
+  color: var(--color-danger);
 }
 
 .error-msg {

@@ -244,6 +244,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { fetchSelfServiceApi } from '../api'
+import { startOidcLogin } from '../services/oidc'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -460,16 +461,16 @@ async function handleSsoLogin() {
   loadingAuth.value = true
   loginError.value = ''
   try {
-    // BFF flow: get authorization URI from backend and redirect
-    const response = await fetchSelfServiceApi('/oidc/login')
-    if (response?.authorization_uri) {
-      window.location.href = response.authorization_uri
-    } else {
-      loginError.value = 'Failed to initiate SSO login.'
+    if (!oidcClient.value) {
+      loginError.value = 'OIDC is not configured on this server.'
       loadingAuth.value = false
+      return
     }
+    // Redirect to backend BFF for self-service OIDC login
+    // This will NOT return; it redirects the browser
+    await startOidcLogin('/api', 'account')
   } catch (err) {
-    loginError.value = 'Failed to start SSO login. Check OIDC configuration.'
+    loginError.value = err.message || 'Failed to start SSO login. Check OIDC configuration.'
     loadingAuth.value = false
   }
 }

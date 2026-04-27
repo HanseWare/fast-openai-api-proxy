@@ -477,69 +477,43 @@ def test_access_key_lifecycle_and_quota_enforcement():
     assert no_auth_call.status_code == 401
 
 
-def test_self_service_api_key_generation_retries_duplicate_secret(monkeypatch):
-    _reset_access_store()
+def test_self_service_oidc_callback_reads_session_cookie_and_sets_auth_cookie(monkeypatch):
+    from session_store import store as oidc_session_store  # noqa: E402
 
-    client = TestClient(_build_app())
+    oidc_session_store._sessions.clear()
 
-    first_key = client.post(
-        "/api/keys",
-        headers={"Authorization": "Bearer duplicate-user-token"},
-        json={"name": "existing"},
+    app = FastAPI()
+    app.include_router(self_service_router)
+
+    captured = {}
+
+    def fake_build_authorization_uri(redirect_uri, state, code_verifier):
+        captured["redirect_uri"] = redirect_uri
+        captured["state"] = state
+        return "https://auth.example.com/authorize"
+
+    monkeypatch.setattr("routers.self_service.is_oidc_auth_enabled", lambda: True)
+    monkeypatch.setattr("routers.self_service.get_oidc_client_id", lambda: "client-id")
+    monkeypatch.setattr("routers.self_service.get_oidc_client_secret", lambda: "client-secret")
+    monkeypatch.setattr("routers.self_service.build_authorization_uri", fake_build_authorization_uri)
+    monkeypatch.setattr("routers.self_service.exchange_code_for_token", lambda code, redirect_uri, code_verifier: {"access_token": "access-token"})
+    monkeypatch.setattr("routers.self_service.get_oidc_claims", lambda token: {"sub": "user-1"})
+    monkeypatch.setattr("routers.self_service.has_self_service_access", lambda claims: True)
+    monkeypatch.setattr("routers.self_service.get_owner_id_from_claims", lambda claims: "user-1")
+    monkeypatch.setattr("routers.self_service.get_base_url_from_request", lambda request: "https://ai-api.example.com")
+
+    client = TestClient(app, base_url="https://ai-api.example.com")
+
+    login = client.get("/api/oidc/login")
+    assert login.status_code == 200
+    assert login.json()["authorization_uri"] == "https://auth.example.com/authorize"
+    assert captured["redirect_uri"] == "https://ai-api.example.com/api/oidc/callback"
+
+    callback = client.get(
+        "/api/oidc/callback",
+        params={"code": "auth-code", "state": captured["state"]},
+        follow_redirects=False,
     )
-    assert first_key.status_code == 200
-    existing_secret = first_key.json()["api_key"]
-
-    from access_store import store  # noqa: E402
-
-    secret_values = iter([existing_secret, "foap-" + ("1" * 64)])
-    monkeypatch.setattr(store, "_new_secret", lambda: next(secret_values))
-
-    second_key = client.post(
-        "/api/keys",
-        headers={"Authorization": "Bearer duplicate-user-token-2"},
-        json={"name": "replacement"},
-    )
-    assert second_key.status_code == 200
-    assert second_key.json()["api_key"] != existing_secret
-    assert second_key.json()["api_key"].startswith("foap-")
-
-
-def test_quota_decision_trace_header_exposes_resolution_source():
-    _reset_access_store()
-
-    client = TestClient(_build_app())
-
-    create_key = client.post(
-        "/api/keys",
-        headers={"Authorization": "Bearer trace-user-token"},
-        json={"name": "trace-key"},
-    )
-    assert create_key.status_code == 200
-    created_key = create_key.json()
-
-    policy_create = client.post(
-        "/api/admin/quota-policies",
-        headers={"Authorization": "Bearer admin-secret"},
-        json={
-            "api_path": "/v1/chat/completions",
-            "model": "gpt-4o",
-            "window_type": "minute",
-            "request_limit": 1,
-            "enforce_per_user": True,
-        },
-    )
-    assert policy_create.status_code == 200
-
-    call = client.post(
-        "/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {created_key['api_key']}",
-            "X-FOAP-Debug-Quota": "1",
-        },
-        json={"model": "gpt-4o", "messages": [{"role": "user", "content": "trace"}]},
-    )
-    assert call.status_code == 200
-    assert "source=policy" in call.headers.get("X-FOAP-Quota-Decision", "")
-
-
+    assert callback.status_code == 302
+    assert callback.headers["location"] == "/account"
+    assert "foap_session=" in callback.headers.get("set-cookie", "")

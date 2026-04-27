@@ -1,13 +1,13 @@
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException, Query, status, Response
+from fastapi import APIRouter, Header, HTTPException, Query, Request, Cookie, status, Response
 from fastapi.responses import RedirectResponse
 
 from access_store import store
 from auth import extract_bearer_token, get_oidc_owner_id, identity_from_token
 from config import get_auth_mode_snapshot, is_self_service_oidc_only_enabled, is_oidc_auth_enabled, get_oidc_client_id, get_oidc_client_secret
 from oidc_auth import get_oidc_claims, has_self_service_access, get_owner_id_from_claims
-from oidc_bff import generate_auth_state, build_authorization_uri, exchange_code_for_token, validate_state
+from oidc_bff import generate_auth_state, build_authorization_uri, exchange_code_for_token, validate_state, get_base_url_from_request
 from session_store import store as session_store
 from schemas.access import ApiKeyCreate, ApiKeyCreateResponse, ApiKeyRead, QuotaPolicyRead, QuotaUsageRead
 
@@ -30,16 +30,16 @@ async def self_service_auth_config():
 
 
 @router.get("/oidc/login", summary="Initiate OIDC authorization flow (BFF)")
-async def oidc_login(response: Response, request):
+async def oidc_login(response: Response, request: Request):
     """Initiate OIDC login for self-service. Returns authorization URI."""
     if not is_oidc_auth_enabled() or not get_oidc_client_id() or not get_oidc_client_secret():
         raise HTTPException(status_code=400, detail="OIDC BFF not configured")
 
     state, code_verifier = generate_auth_state()
 
-    # Build full redirect URI
-    base_url = str(request.base_url).rstrip("/")
-    redirect_uri = f"{base_url}api/oidc/callback"
+    # Build full redirect URI respecting X-Forwarded-Proto header
+    base_url = get_base_url_from_request(request)
+    redirect_uri = f"{base_url}/api/oidc/callback"
 
     # Store state and verifier in session
     session_id = session_store.create({
@@ -63,7 +63,7 @@ async def oidc_login(response: Response, request):
 
 
 @router.get("/oidc/callback", summary="OIDC callback handler (BFF)")
-async def oidc_callback(code: str, state: str, response: Response, request, oidc_session: Optional[str] = Header(None)):
+async def oidc_callback(code: str, state: str, request: Request, oidc_session: Optional[str] = Cookie(default=None, alias="foap_oidc_session")):
     """Handle OIDC callback and set authenticated session."""
     if not is_oidc_auth_enabled() or not get_oidc_client_id() or not get_oidc_client_secret():
         raise HTTPException(status_code=400, detail="OIDC BFF not configured")
@@ -79,9 +79,9 @@ async def oidc_callback(code: str, state: str, response: Response, request, oidc
 
     code_verifier = session_data.get("code_verifier", "")
 
-    # Build full redirect URI (must match the one from /oidc/login)
-    base_url = str(request.base_url).rstrip("/")
-    redirect_uri = f"{base_url}api/oidc/callback"
+    # Build full redirect URI (must match the one from /oidc/login) respecting X-Forwarded-Proto header
+    base_url = get_base_url_from_request(request)
+    redirect_uri = f"{base_url}/api/oidc/callback"
 
     # Exchange code for token
     token_response = exchange_code_for_token(code, redirect_uri, code_verifier)
@@ -105,8 +105,9 @@ async def oidc_callback(code: str, state: str, response: Response, request, oidc
     # Clean up old session
     session_store.delete(oidc_session or "")
 
-    # Set authenticated session cookie
-    response.set_cookie(
+    # Redirect to account page and set authenticated session cookie on the redirect response
+    redirect_response = RedirectResponse(url="/account", status_code=302)
+    redirect_response.set_cookie(
         key="foap_session",
         value=auth_session_id,
         max_age=86400,
@@ -114,9 +115,8 @@ async def oidc_callback(code: str, state: str, response: Response, request, oidc
         secure=True,
         samesite="lax",
     )
+    return redirect_response
 
-    # Redirect to account page
-    return RedirectResponse(url="/account", status_code=302)
 
 def _require_user_token(authorization: Optional[str]) -> str:
     token = extract_bearer_token(authorization)
@@ -221,5 +221,4 @@ async def get_own_usage_summary(
     token = _require_user_token(authorization)
     owner_id = _resolve_owner_id(token)
     return store.get_usage_summary(owner_id=owner_id, model=model, api_path=api_path, window_size=window_size)
-
 

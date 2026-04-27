@@ -1,62 +1,51 @@
-import { UserManager, WebStorageStateStore } from 'oidc-client-ts'
-
-let _userManager = null
+/**
+ * OIDC Backend-for-Frontend (BFF) service.
+ *
+ * This service orchestrates OIDC login via the backend BFF pattern:
+ * 1. Frontend requests `/api/admin/oidc/login` or `/api/oidc/login`
+ * 2. Backend returns authorization URI
+ * 3. Frontend redirects user to identity provider
+ * 4. User authenticates and is redirected back to backend callback endpoint
+ * 5. Backend handles token exchange securely (with client_secret)
+ * 6. Backend sets session cookie and redirects to frontend
+ */
 
 /**
- * Initialise or return the cached UserManager instance.
+ * Start the OIDC login flow via backend BFF.
  *
- * @param {Object} oidcClient - The oidc_client block from /auth-config
- * @param {string} oidcClient.authority - OIDC issuer URL
- * @param {string} oidcClient.client_id - OIDC client ID
- * @param {string} redirectPath - The path to redirect to after login (default: /oidc-callback)
+ * @param {string} apiBasePath - '/api/admin' for admin, '/api' for self-service
+ * @param {string} target - 'admin' or 'account' (used for error handling)
+ * @throws {Error} If backend returns error or network fails
  */
-export function getOidcManager(oidcClient, redirectPath = '/oidc-callback') {
-  if (_userManager) return _userManager
-
-  _userManager = new UserManager({
-    authority: oidcClient.authority,
-    client_id: oidcClient.client_id,
-    redirect_uri: `${window.location.origin}${redirectPath}`,
-    response_type: 'code',
-    scope: 'openid profile email',
-    userStore: new WebStorageStateStore({ store: window.sessionStorage }),
-    automaticSilentRenew: false,
-  })
-
-  return _userManager
-}
-
-/**
- * Start the OIDC login redirect.
- * Saves a `foap_oidc_target` key so the callback knows where to go afterwards.
- *
- * @param {Object} oidcClient
- * @param {string} target - 'admin' or 'account'
- */
-export async function startOidcLogin(oidcClient, target = 'admin') {
-  const mgr = getOidcManager(oidcClient)
+export async function startOidcLogin(apiBasePath = '/api/admin', target = 'admin') {
+  // Store the target so we can handle errors appropriately
   sessionStorage.setItem('foap_oidc_target', target)
-  await mgr.signinRedirect()
-}
 
-/**
- * Complete the OIDC login by processing the callback URL.
- * Returns the access_token string on success, or null on failure.
- */
-export async function completeOidcLogin(oidcClient) {
-  const mgr = getOidcManager(oidcClient)
   try {
-    const user = await mgr.signinCallback()
-    return user?.access_token || null
+    // Request login initiation from backend BFF
+    const response = await fetch(`${apiBasePath}/oidc/login`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+      },
+      credentials: 'include', // Include cookies for session
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(errorData.detail || `OIDC login failed: ${response.status}`)
+    }
+
+    const data = await response.json()
+    if (!data.authorization_uri) {
+      throw new Error('Backend did not return authorization_uri')
+    }
+
+    // Redirect user to identity provider (handled by backend/PKCE)
+    window.location.href = data.authorization_uri
   } catch (err) {
-    console.error('OIDC callback error:', err)
-    return null
+    console.error('Failed to start OIDC login:', err)
+    throw err
   }
 }
 
-/**
- * Reset the cached UserManager (e.g. on logout).
- */
-export function resetOidcManager() {
-  _userManager = null
-}

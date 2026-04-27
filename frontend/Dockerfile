@@ -13,6 +13,7 @@ RUN echo 'window.VUE_APP_CONFIG = { BACKEND_URL: "${BACKEND_URL}" };' > /usr/sha
 
 # Copy the entrypoint script
 COPY docker-entrypoint.sh /usr/local/bin/
+COPY nginx.conf /etc/nginx/nginx.conf
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 ENTRYPOINT ["docker-entrypoint.sh"]
