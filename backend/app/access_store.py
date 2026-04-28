@@ -366,7 +366,7 @@ class AccessStore:
         }
 
     def list_api_keys(self, owner_id: Optional[str] = None) -> list[dict]:
-        query = "SELECT id, name, owner_id FROM api_keys WHERE revoked = 0"
+        query = "SELECT id, name, owner_id, secret_hash FROM api_keys WHERE revoked = 0"
         params: tuple = ()
         if owner_id is not None:
             query += " AND owner_id = ?"
@@ -376,6 +376,12 @@ class AccessStore:
         with self._connect() as conn:
             rows = conn.execute(query, params).fetchall()
 
+        def _masked_from_hash(secret_hash: str) -> str:
+            # Show a compact, non-reversible masked label with foap- prefix (does not reveal the secret)
+            if not secret_hash or len(secret_hash) < 12:
+                return "foap-****"
+            return f"foap-{secret_hash[:8]}…{secret_hash[-4:]}"
+
         keys: list[dict] = []
         for row in rows:
             keys.append(
@@ -383,7 +389,7 @@ class AccessStore:
                     "id": row["id"],
                     "name": row["name"],
                     "owner_id": row["owner_id"],
-                    "masked_key": "hidden",
+                    "masked_key": _masked_from_hash(row["secret_hash"]),
                 }
             )
         return keys
@@ -1304,6 +1310,4 @@ class AccessStore:
 
 
 store = AccessStore()
-
-
 

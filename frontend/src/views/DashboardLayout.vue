@@ -8,31 +8,31 @@
       </div>
 
       <nav class="nav-links">
-        <router-link to="/" class="nav-link" exact-active-class="active">
+        <router-link v-if="adminEnabled" to="/admin" class="nav-link" exact-active-class="active">
           <span class="icon">📊</span>
           Overview
         </router-link>
-        <router-link to="/keys" class="nav-link" active-class="active">
+        <router-link v-if="adminEnabled" to="/admin/keys" class="nav-link" active-class="active">
           <span class="icon">🔑</span>
           API Keys
         </router-link>
-        <router-link to="/endpoints" class="nav-link" active-class="active">
+        <router-link v-if="adminEnabled" to="/admin/endpoints" class="nav-link" active-class="active">
           <span class="icon">🛡️</span>
           Protected Endpoints
         </router-link>
-        <router-link to="/quotas" class="nav-link" active-class="active">
+        <router-link v-if="adminEnabled" to="/admin/quotas" class="nav-link" active-class="active">
           <span class="icon">⚖️</span>
           Quotas
         </router-link>
-        <router-link to="/providers" class="nav-link" active-class="active">
+        <router-link v-if="adminEnabled" to="/admin/providers" class="nav-link" active-class="active">
           <span class="icon">🌐</span>
           Providers & Routing
         </router-link>
-        <router-link to="/aliases" class="nav-link" active-class="active">
+        <router-link v-if="adminEnabled" to="/admin/aliases" class="nav-link" active-class="active">
           <span class="icon">🎭</span>
           Virtual Models
         </router-link>
-        <router-link to="/account" class="nav-link" active-class="active">
+        <router-link v-if="selfServiceEnabled" to="/account" class="nav-link" active-class="active">
           <span class="icon">👤</span>
           Self-Service Portal
         </router-link>
@@ -68,13 +68,17 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { fetchApi } from '../api'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+
+const adminEnabled = ref(true)
+const selfServiceEnabled = ref(true)
 
 const currentRouteName = computed(() => {
   const map = {
@@ -89,9 +93,21 @@ const currentRouteName = computed(() => {
   return map[route.name] || 'Admin Dashboard'
 })
 
+onMounted(async () => {
+  try {
+    const cfg = await fetchApi('/auth-config')
+    adminEnabled.value = !!cfg?.admin?.enabled
+    selfServiceEnabled.value = !!cfg?.self_service?.enabled
+  } catch (e) {
+    // keep defaults (true) on error
+  }
+})
+
 function handleLogout() {
   authStore.logout()
-  router.push({ name: 'login' })
+  // Best-effort: inform backend to invalidate cookie session
+  fetchApi('/logout', { method: 'POST' }).catch(() => {})
+  router.push({ name: 'admin-login' })
 }
 </script>
 

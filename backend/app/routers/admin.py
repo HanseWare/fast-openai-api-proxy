@@ -2,7 +2,7 @@ import sqlite3
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, Cookie, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, JSONResponse
 
 from access_store import store
 from auth import extract_bearer_token
@@ -42,26 +42,55 @@ def _validate_override_window(starts_at: int | None, ends_at: int | None) -> Non
     if starts_at is not None and ends_at is not None and ends_at <= starts_at:
         raise HTTPException(status_code=400, detail="ends_at must be greater than starts_at")
 
-def require_admin(authorization: Optional[str] = Header(default=None)) -> None:
+
+def require_admin(authorization: Optional[str] = Header(default=None), foap_session: Optional[str] = Cookie(default=None, alias="foap_session")) -> None:
+    """Require admin access. Accepts either:
+
+    - Authorization: Bearer <token> matching FOAP_ADMIN_TOKEN, or
+    - an OIDC bearer token with admin claims, or
+    - a cookie-based BFF session (`foap_session`) created by the admin OIDC callback.
+    """
     expected_token = get_admin_token()
     provided_token = extract_bearer_token(authorization)
     admin_oidc_only = is_admin_oidc_only_enabled()
 
+    # If admin-only via OIDC and Authorization header present
     if admin_oidc_only:
-        if not provided_token:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="OIDC bearer token required")
-        claims = get_oidc_claims(provided_token)
-        if claims is None or not has_admin_access(claims):
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="OIDC admin claim missing or invalid")
-        return
+        if provided_token:
+            claims = get_oidc_claims(provided_token)
+            if claims is None or not has_admin_access(claims):
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="OIDC admin claim missing or invalid")
+            return
+        # try cookie-based session
+        if foap_session:
+            session = session_store.get(foap_session)
+            if not session:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired session")
+            access_token = session.get("access_token")
+            claims = get_oidc_claims(access_token)
+            if claims is None or not has_admin_access(claims):
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="OIDC admin claim missing or invalid")
+            return
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="OIDC bearer token required")
 
+    # If there is an expected static admin token, accept it
     if expected_token and provided_token == expected_token:
         return
 
+    # If Authorization header contains an OIDC token, validate admin claim
     if is_oidc_auth_enabled() and provided_token:
         claims = get_oidc_claims(provided_token)
         if claims is not None and has_admin_access(claims):
             return
+
+    # If Authorization header missing but cookie-based session exists, accept if admin claim present
+    if foap_session and is_oidc_auth_enabled():
+        session = session_store.get(foap_session)
+        if session:
+            access_token = session.get("access_token")
+            claims = get_oidc_claims(access_token)
+            if claims is not None and has_admin_access(claims):
+                return
 
     if not expected_token and not is_oidc_auth_enabled():
         raise HTTPException(
@@ -176,6 +205,23 @@ async def oidc_callback(code: str, state: str, request: Request, oidc_session: O
         samesite="lax",
     )
     return redirect_response
+
+
+@router.post("/logout", summary="Admin logout")
+async def admin_logout(
+    oidc_session: Optional[str] = Cookie(default=None, alias="foap_oidc_session"),
+    foap_session: Optional[str] = Cookie(default=None, alias="foap_session"),
+):
+    """Invalidate admin cookie-based sessions and clear client cookies."""
+    if oidc_session:
+        session_store.delete(oidc_session)
+    if foap_session:
+        session_store.delete(foap_session)
+
+    response = JSONResponse({"status": "logged_out"})
+    for name in ("foap_session", "foap_admin_logged_in", "foap_oidc_session"):
+        response.delete_cookie(name, samesite="lax")
+    return response
 
 
 @router.get("/keys", response_model=list[ApiKeyRead], summary="List managed API keys")
@@ -400,4 +446,3 @@ async def delete_quota_override(override_id: str, _: None = Depends(require_admi
     if not deleted:
         raise HTTPException(status_code=404, detail="Quota override not found")
     return {"status": "deleted", "override_id": override_id}
-

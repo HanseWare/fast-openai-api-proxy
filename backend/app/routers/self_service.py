@@ -1,7 +1,7 @@
 from typing import Optional
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request, Cookie, status, Response
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, JSONResponse
 
 from access_store import store
 from auth import extract_bearer_token, get_oidc_owner_id, identity_from_token
@@ -125,8 +125,43 @@ async def oidc_callback(code: str, state: str, request: Request, oidc_session: O
     return redirect_response
 
 
-def _require_user_token(authorization: Optional[str]) -> str:
+@router.post("/logout", summary="Self-service logout")
+async def self_service_logout(
+    oidc_session: Optional[str] = Cookie(default=None, alias="foap_oidc_session"),
+    foap_session: Optional[str] = Cookie(default=None, alias="foap_session"),
+):
+    """Invalidate cookie-based self-service sessions and clear client cookies.
+
+    Works without Authorization header; relies on HttpOnly cookies only.
+    """
+    if oidc_session:
+        session_store.delete(oidc_session)
+    if foap_session:
+        session_store.delete(foap_session)
+
+    response = JSONResponse({"status": "logged_out"})
+    # Clear related cookies on client
+    for name in ("foap_session", "foap_logged_in", "foap_oidc_session"):
+        response.delete_cookie(name, samesite="lax")
+    return response
+
+
+def _require_user_token(authorization: Optional[str], request: Request) -> str:
+    """Require an access token; accept either Authorization: Bearer or a cookie-based OIDC session.
+
+    When the frontend uses the BFF cookie session (httponly cookie `foap_session`), the backend
+    should accept that session and extract the access_token stored in the session store.
+    """
     token = extract_bearer_token(authorization)
+
+    # If no Authorization header, try cookie-based session (BFF flow)
+    if not token:
+        session_id = request.cookies.get("foap_session")
+        if session_id:
+            session_data = session_store.get(session_id)
+            if session_data and isinstance(session_data, dict):
+                token = session_data.get("access_token")
+
     if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
 
@@ -153,14 +188,14 @@ def _require_owned_key(owner_id: str, key_id: str) -> dict:
 
 
 @router.get("/health", summary="Self-service API health")
-async def self_service_health(authorization: Optional[str] = Header(default=None)):
-    _require_user_token(authorization)
+async def self_service_health(request: Request, authorization: Optional[str] = Header(default=None)):
+    _require_user_token(authorization, request)
     return {"status": "ok", "scope": "self-service"}
 
 
 @router.get("/session", summary="Get current self-service session")
-async def self_service_session(authorization: Optional[str] = Header(default=None)):
-    token = _require_user_token(authorization)
+async def self_service_session(request: Request, authorization: Optional[str] = Header(default=None)):
+    token = _require_user_token(authorization, request)
     owner_id = _resolve_owner_id(token)
     auth_source = "oidc" if get_oidc_owner_id(token) else "token-hash"
     return {
@@ -171,22 +206,22 @@ async def self_service_session(authorization: Optional[str] = Header(default=Non
 
 
 @router.get("/keys", response_model=list[ApiKeyRead], summary="List own API keys")
-async def list_own_keys(authorization: Optional[str] = Header(default=None)):
-    token = _require_user_token(authorization)
+async def list_own_keys(request: Request, authorization: Optional[str] = Header(default=None)):
+    token = _require_user_token(authorization, request)
     owner_id = _resolve_owner_id(token)
     return store.list_api_keys(owner_id=owner_id)
 
 
 @router.post("/keys", response_model=ApiKeyCreateResponse, summary="Create own API key")
-async def create_own_key(payload: ApiKeyCreate, authorization: Optional[str] = Header(default=None)):
-    token = _require_user_token(authorization)
+async def create_own_key(payload: ApiKeyCreate, request: Request, authorization: Optional[str] = Header(default=None)):
+    token = _require_user_token(authorization, request)
     owner_id = _resolve_owner_id(token)
     return store.create_api_key(name=payload.name, owner_id=owner_id)
 
 
 @router.delete("/keys/{key_id}", summary="Delete own API key")
-async def delete_own_key(key_id: str, authorization: Optional[str] = Header(default=None)):
-    token = _require_user_token(authorization)
+async def delete_own_key(key_id: str, request: Request, authorization: Optional[str] = Header(default=None)):
+    token = _require_user_token(authorization, request)
     owner_id = _resolve_owner_id(token)
     deleted = store.revoke_api_key(key_id, owner_id=owner_id)
     if not deleted:
@@ -195,8 +230,8 @@ async def delete_own_key(key_id: str, authorization: Optional[str] = Header(defa
 
 
 @router.get("/keys/{key_id}/quota", response_model=QuotaPolicyRead, summary="Get own API key quota")
-async def get_own_key_quota(key_id: str, authorization: Optional[str] = Header(default=None)):
-    token = _require_user_token(authorization)
+async def get_own_key_quota(key_id: str, request: Request, authorization: Optional[str] = Header(default=None)):
+    token = _require_user_token(authorization, request)
     owner_id = _resolve_owner_id(token)
     _require_owned_key(owner_id, key_id)
 
@@ -207,8 +242,8 @@ async def get_own_key_quota(key_id: str, authorization: Optional[str] = Header(d
 
 
 @router.get("/keys/{key_id}/usage", response_model=QuotaUsageRead, summary="Get own API key usage")
-async def get_own_key_usage(key_id: str, authorization: Optional[str] = Header(default=None)):
-    token = _require_user_token(authorization)
+async def get_own_key_usage(key_id: str, request: Request, authorization: Optional[str] = Header(default=None)):
+    token = _require_user_token(authorization, request)
     owner_id = _resolve_owner_id(token)
     _require_owned_key(owner_id, key_id)
 
@@ -220,12 +255,12 @@ async def get_own_key_usage(key_id: str, authorization: Optional[str] = Header(d
 
 @router.get("/usage/summary", summary="Get own aggregated usage summary")
 async def get_own_usage_summary(
+    request: Request,
     authorization: Optional[str] = Header(default=None),
     model: Optional[str] = Query(default=None, min_length=1),
     api_path: Optional[str] = Query(default=None, min_length=1),
     window_size: int = Query(default=6, ge=1, le=96),
 ):
-    token = _require_user_token(authorization)
+    token = _require_user_token(authorization, request)
     owner_id = _resolve_owner_id(token)
     return store.get_usage_summary(owner_id=owner_id, model=model, api_path=api_path, window_size=window_size)
-

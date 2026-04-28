@@ -182,12 +182,14 @@ def get_auth_mode_snapshot() -> dict:
 
     return {
         "admin": {
+            "enabled": is_admin_api_enabled(),
             "mode": _admin_auth_mode(),
             "oidc_enabled": is_oidc_auth_enabled(),
             "oidc_only": is_admin_oidc_only_enabled(),
             "static_token_enabled": bool(get_admin_token()),
         },
         "self_service": {
+            "enabled": is_self_service_api_enabled(),
             "mode": _self_service_auth_mode(),
             "oidc_enabled": is_oidc_auth_enabled(),
             "oidc_only": is_self_service_oidc_only_enabled(),
@@ -201,4 +203,3 @@ def get_auth_mode_snapshot() -> dict:
         },
         "oidc_client": oidc_client,
     }
-

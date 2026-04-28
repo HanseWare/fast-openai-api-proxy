@@ -84,7 +84,7 @@
         <div>
           <h2>Identity</h2>
           <p class="muted">
-            Authenticated as <code>{{ authStore.token ? 'Bearer token present' : 'unknown' }}</code>
+            Authenticated as <code>{{ identityLabel }}</code>
             <span v-if="authModeLabel"> · Mode: {{ authModeLabel }}</span>
           </p>
           <p class="muted" v-if="sessionInfo">Owner: <code>{{ sessionInfo.owner_id }}</code> · Source: {{ sessionInfo.auth_source }}</p>
@@ -111,6 +111,10 @@
               {{ loading ? 'Working…' : 'Create Key' }}
             </button>
           </form>
+          <div v-if="createdSecret" class="secret-alert" style="margin-top:1rem">
+            <strong>Key Created:</strong> <code>{{ createdSecret }}</code>
+            <p class="muted">Please copy this now. You won't be able to see it again!</p>
+          </div>
         </div>
 
         <div class="glass-panel panel">
@@ -264,6 +268,7 @@ const newKeyName = ref('')
 const usageFilterModel = ref('')
 const usageFilterApiPath = ref('')
 const usageWindowSize = ref(6)
+const createdSecret = ref('')
 
 const isAuthenticated = computed(() => authStore.isAuthenticated)
 
@@ -434,8 +439,24 @@ function decorateKeyDetail(key, quota, usage) {
   }
 }
 
+const identityLabel = computed(() => {
+  if (authStore.token) return 'Bearer token present'
+  // If no token but cookie-SSO active and we have sessionInfo, show owner id short form
+  if (sessionInfo.value?.owner_id) {
+    const oid = sessionInfo.value.owner_id
+    // Display short label, e.g., oidc:subhash → last 8 chars
+    const short = oid.length > 12 ? `${oid.slice(0, 8)}…${oid.slice(-4)}` : oid
+    return `cookie session (${short})`
+  }
+  return 'unknown'
+})
+
 function handleLogout() {
   authStore.logout()
+  // Call backend to invalidate server-side sessions (best-effort)
+  fetchSelfServiceApi('/logout', { method: 'POST' }).catch(() => {})
+  // Clear any OIDC target hint
+  try { sessionStorage.removeItem('foap_oidc_target') } catch (e) {}
   keys.value = []
   keyDetails.value = []
   usageSummary.value = null
@@ -562,11 +583,13 @@ async function createKey() {
   if (!newKeyName.value.trim()) return
   loading.value = true
   error.value = ''
+  createdSecret.value = ''
   try {
-    await fetchSelfServiceApi('/keys', {
+    const res = await fetchSelfServiceApi('/keys', {
       method: 'POST',
       body: JSON.stringify({ name: newKeyName.value.trim() }),
     })
+    createdSecret.value = res.api_key || ''
     newKeyName.value = ''
     await refreshAll()
   } catch (err) {
@@ -1103,6 +1126,13 @@ code {
   flex: 1;
   height: 1px;
   background: rgba(255, 255, 255, 0.08);
+}
+
+.secret-alert {
+  padding: 0.9rem 1rem;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  border-radius: 8px;
 }
 </style>
 

@@ -110,6 +110,14 @@ def _claim_values_for_mapping(claims: dict[str, Any]) -> set[str]:
 
 
 def has_self_service_access(claims: dict[str, Any]) -> bool:
+    """Return True if claims allow self-service access.
+
+    Admin access implicitly grants self-service access to avoid role duplication for admins.
+    """
+    # Admins are allowed implicitly
+    if has_admin_access(claims):
+        return True
+
     required_values = set(get_oidc_self_service_values())
     if not required_values:
         return True
