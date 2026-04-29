@@ -92,6 +92,7 @@ class QuotaOverrideRead(QuotaOverrideBase):
 
 
 class AuthModeSection(BaseModel):
+    enabled: bool
     mode: str
     oidc_enabled: bool
     oidc_only: bool
