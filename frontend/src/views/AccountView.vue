@@ -78,17 +78,6 @@
             <span class="stat-label">Remaining / Window</span>
           </div>
         </div>
-      </section>
-
-      <section class="toolbar glass-panel">
-        <div>
-          <h2>Identity</h2>
-          <p class="muted">
-            Authenticated as <code>{{ identityLabel }}</code>
-            <span v-if="authModeLabel"> · Mode: {{ authModeLabel }}</span>
-          </p>
-          <p class="muted" v-if="sessionInfo">Owner: <code>{{ sessionInfo.owner_id }}</code> · Source: {{ sessionInfo.auth_source }}</p>
-        </div>
         <div class="toolbar-actions">
           <button class="btn-secondary" type="button" @click="refreshAll" :disabled="loading">
             Refresh
@@ -98,6 +87,25 @@
           </button>
         </div>
       </section>
+
+<!--      <section class="toolbar glass-panel">-->
+<!--        <div>-->
+<!--          <h2>Identity</h2>-->
+<!--          <p class="muted">-->
+<!--            Authenticated as <code>{{ identityLabel }}</code>-->
+<!--            <span v-if="authModeLabel"> · Mode: {{ authModeLabel }}</span>-->
+<!--          </p>-->
+<!--          <p class="muted" v-if="sessionInfo">Owner: <code>{{ sessionInfo.owner_id }}</code> · Source: {{ sessionInfo.auth_source }}</p>-->
+<!--        </div>-->
+<!--        <div class="toolbar-actions">-->
+<!--          <button class="btn-secondary" type="button" @click="refreshAll" :disabled="loading">-->
+<!--            Refresh-->
+<!--          </button>-->
+<!--          <button class="btn-secondary danger" type="button" @click="handleLogout">-->
+<!--            Logout-->
+<!--          </button>-->
+<!--        </div>-->
+<!--      </section>-->
 
       <section class="grid-two">
         <div class="glass-panel panel">

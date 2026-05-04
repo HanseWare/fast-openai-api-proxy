@@ -35,16 +35,18 @@
         <div v-for="p in providers" :key="p.id" class="provider-card">
           <div class="provider-head">
             <strong>{{ p.name }}</strong>
-            <span class="pill" :class="ratelimits[p.id] ? 'pill-ok' : 'pill-muted'">
-              {{ ratelimits[p.id] ? 'Synced' : '—' }}
+            <span class="pill" :class="p.sync_provider_ratelimits ? 'pill-ok' : 'pill-muted'">
+              {{ p.sync_provider_ratelimits ? 'Synced' : 'Not-Synced' }}
             </span>
           </div>
-          <div v-if="ratelimits[p.id]" class="rate-rows">
+          <div v-if="p.sync_provider_ratelimits" class="rate-rows">
             <div class="rate-row"><span>Minute</span><span>{{ fmt(ratelimits[p.id].remaining_minute) }} / {{ fmt(ratelimits[p.id].limit_minute) }}</span></div>
             <div class="rate-row"><span>Hour</span><span>{{ fmt(ratelimits[p.id].remaining_hour) }} / {{ fmt(ratelimits[p.id].limit_hour) }}</span></div>
             <div class="rate-row"><span>Day</span><span>{{ fmt(ratelimits[p.id].remaining_day) }} / {{ fmt(ratelimits[p.id].limit_day) }}</span></div>
-            <div class="rate-row"><span>Day</span><span>{{ fmt(ratelimits[p.id].remaining_month) }} / {{ fmt(ratelimits[p.id].limit_month) }}</span></div>
-            <div class="rate-row meta"><span>Updated</span><span>{{ ratelimits[p.id].updated_at }}</span></div>
+            <div class="rate-row"><span>Month</span><span>{{ fmt(ratelimits[p.id].remaining_month) }} / {{ fmt(ratelimits[p.id].limit_month) }}</span></div>
+            <div class="rate-row"><span>Current Limiting Window</span><span>{{ fmt(ratelimits[p.id].current_limiting_window) }}</span></div>
+            <div class="rate-row meta"><span>Updated</span><span>{{ new Date(ratelimits[p.id].updated_at * 1000).toLocaleString() }}</span></div>
+            <div v-if="ratelimits[p.id].ratelimit_retry_after" class="rate-row meta"><span>Retry at</span><span>{{ new Date((ratelimits[p.id].updated_at + ratelimits[p.id].ratelimit_retry_after) * 1000).toLocaleString() }}</span></div>
           </div>
           <div v-else class="muted">No snapshot</div>
         </div>

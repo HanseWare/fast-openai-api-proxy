@@ -80,7 +80,7 @@ def extract_provider_ratelimits(headers: httpx.Headers) -> dict:
         elif k == 'ratelimit-limit': limits['ratelimit_limit'] = int(val)
         elif k == 'ratelimit-remaining': limits['ratelimit_remaining'] = int(val)
         elif k == 'ratelimit-reset': limits['ratelimit_reset'] = int(val)
-        elif k == 'retry-after': limits['retry_after'] = int(val)
+        elif k == 'retry-after': limits['ratelimit_retry_after'] = int(val)
 
     if 'ratelimit_limit' in limits:
         ratelimit_limit = limits['ratelimit_limit']
