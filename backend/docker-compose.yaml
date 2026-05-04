@@ -21,5 +21,5 @@ services:
       - FOAP_ADMIN_TOKEN=dev-token
       - FOAP_ACCESS_DB_PATH=data/access.db
       - FOAP_ENABLE_OIDC_AUTH=false
-      - GWDG_API_KEY=9b226dc0c18f79c13c9f0644d6d45b08
+      - GWDG_API_KEY=SETHERE
     restart: unless-stopped
