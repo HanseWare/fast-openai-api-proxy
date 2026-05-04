@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import sqlite3
 import threading
 import time
@@ -7,6 +8,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 from config import get_access_db_path
+
+logger = logging.getLogger(__name__)
 
 
 class AccessStore:
@@ -163,12 +166,21 @@ class AccessStore:
 
                 CREATE TABLE IF NOT EXISTS provider_ratelimits (
                     provider_name TEXT PRIMARY KEY,
+                    limit_second INTEGER,
+                    remaining_second INTEGER,
                     limit_minute INTEGER,
                     remaining_minute INTEGER,
                     limit_hour INTEGER,
                     remaining_hour INTEGER,
                     limit_day INTEGER,
                     remaining_day INTEGER,
+                    limit_month INTEGER,
+                    remaining_month INTEGER,
+                    ratelimit_limit INTEGER,
+                    ratelimit_remaining INTEGER,
+                    ratelimit_reset INTEGER,
+                    ratelimit_retry_after INTEGER,
+                    current_limiting_window TEXT DEFAULT 'second',
                     updated_at INTEGER NOT NULL
                 );
                 """
@@ -232,7 +244,7 @@ class AccessStore:
         with self._connect() as conn:
             row = conn.execute(
                 """
-                SELECT provider_name, limit_minute, remaining_minute, limit_hour, remaining_hour, limit_day, remaining_day, updated_at
+                SELECT *
                 FROM provider_ratelimits
                 WHERE provider_name = ?
                 """,
@@ -244,17 +256,13 @@ class AccessStore:
     def sync_provider_ratelimits(self, provider_name: str, limits: dict[str, Any]) -> dict:
         now = int(time.time())
         existing = self.get_provider_ratelimits(provider_name) or {}
+        fields = ("limit_second", "remaining_second","limit_minute", "remaining_minute", "limit_hour", "remaining_hour", "limit_day", "remaining_day", "limit_month", "remaining_month", "ratelimit_limit", "ratelimit_remaining", "ratelimit_reset", "ratelimit_retry_after", "current_limiting_window", "updated_at")
         merged = {
             "provider_name": provider_name,
-            "limit_minute": existing.get("limit_minute"),
-            "remaining_minute": existing.get("remaining_minute"),
-            "limit_hour": existing.get("limit_hour"),
-            "remaining_hour": existing.get("remaining_hour"),
-            "limit_day": existing.get("limit_day"),
-            "remaining_day": existing.get("remaining_day"),
         }
 
-        for field in ("limit_minute", "remaining_minute", "limit_hour", "remaining_hour", "limit_day", "remaining_day"):
+        for field in fields:
+            merged[field] = existing.get(field)
             if field in limits and limits[field] is not None:
                 merged[field] = int(limits[field])
 
@@ -264,32 +272,59 @@ class AccessStore:
                     """
                     INSERT INTO provider_ratelimits (
                         provider_name,
+                        limit_second,
+                        remaining_second,
                         limit_minute,
                         remaining_minute,
                         limit_hour,
                         remaining_hour,
                         limit_day,
                         remaining_day,
+                        limit_month,
+                        remaining_month,
+                        ratelimit_limit,
+                        ratelimit_remaining,
+                        ratelimit_reset,
+                        ratelimit_retry_after,
+                        current_limiting_window,
                         updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(provider_name)
                     DO UPDATE SET
+                        limit_second = excluded.limit_second,
+                        remaining_second = excluded.remaining_second,
                         limit_minute = excluded.limit_minute,
                         remaining_minute = excluded.remaining_minute,
                         limit_hour = excluded.limit_hour,
                         remaining_hour = excluded.remaining_hour,
                         limit_day = excluded.limit_day,
                         remaining_day = excluded.remaining_day,
+                        limit_month = excluded.limit_month,
+                        remaining_month = excluded.remaining_month,
+                        ratelimit_limit = excluded.ratelimit_limit,
+                        ratelimit_remaining = excluded.ratelimit_remaining,
+                        ratelimit_reset = excluded.ratelimit_reset,
+                        ratelimit_retry_after = excluded.ratelimit_retry_after,
+                        current_limiting_window = excluded.current_limiting_window,
                         updated_at = excluded.updated_at
                     """,
                     (
                         provider_name,
+                        merged["limit_second"],
+                        merged["remaining_second"],
                         merged["limit_minute"],
                         merged["remaining_minute"],
                         merged["limit_hour"],
                         merged["remaining_hour"],
                         merged["limit_day"],
                         merged["remaining_day"],
+                        merged["limit_month"],
+                        merged["remaining_month"],
+                        merged["ratelimit_limit"],
+                        merged["ratelimit_remaining"],
+                        merged["ratelimit_reset"],
+                        merged["ratelimit_retry_after"],
+                        merged["current_limiting_window"],
                         now,
                     ),
                 )
@@ -297,17 +332,20 @@ class AccessStore:
         merged["updated_at"] = now
         return merged
 
-    def get_exhausted_provider_ratelimit_windows(self, provider_name: str) -> list[str]:
+    def get_exhausted_provider_ratelimit_window(self, provider_name: str) -> str | None:
         snapshot = self.get_provider_ratelimits(provider_name)
         if not snapshot:
-            return []
-
-        exhausted: list[str] = []
-        for window in ("minute", "hour", "day"):
-            remaining = snapshot.get(f"remaining_{window}")
-            if isinstance(remaining, int) and remaining <= 0:
-                exhausted.append(window)
-        return exhausted
+            return None
+        window = snapshot.get("current_limiting_window")
+        remaining = snapshot.get("ratelimit_remaining")
+        retry_after = snapshot.get("ratelimit_retry_after")
+        updated_at = snapshot.get("updated_at")
+        if remaining is not None and isinstance(remaining, int) and remaining <= 0 and retry_after is not None and isinstance(retry_after, int) and updated_at is not None and isinstance(updated_at, int):
+            time_to_reset = updated_at + retry_after - int(time.time())
+            logger.info(f"Time to reset {provider_name} ratelimit window: {time_to_reset} seconds")
+            if time_to_reset > 0:
+                return window
+        return None
 
     @staticmethod
     def _hash_secret(secret: str) -> str:

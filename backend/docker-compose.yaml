@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  foap-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - FOAP_HOST=0.0.0.0
+      - FOAP_PORT=8000
+      - FOAP_LOGLEVEL=INFO
+      - FOAP_CONFIG_DIR=configs
+      - FOAP_ENABLE_ADMIN_API=true
+      - FOAP_ENABLE_SELF_SERVICE_API=true
+      - FOAP_ENABLE_ACCESS_CONTROL=false
+      - FOAP_ENABLE_QUOTA_DECISION_TRACE=false
+      - FOAP_ADMIN_TOKEN=dev-token
+      - FOAP_ACCESS_DB_PATH=data/access.db
+      - FOAP_ENABLE_OIDC_AUTH=false
+      - GWDG_API_KEY=9b226dc0c18f79c13c9f0644d6d45b08
+    restart: unless-stopped

@@ -184,8 +184,8 @@ def test_provider_ratelimit_sync_is_persisted_and_admin_visible():
     assert merged["limit_hour"] == 1000
     assert merged["remaining_hour"] == 500
 
-    exhausted_windows = store.get_exhausted_provider_ratelimit_windows(provider_name)
-    assert exhausted_windows == []
+    exhausted_window = store.get_exhausted_provider_ratelimit_window(provider_name)
+    assert exhausted_window == None
 
     app = FastAPI()
     app.include_router(admin_config_router)

@@ -3,7 +3,7 @@
     <div class="view-header">
       <h2>Routing Providers</h2>
       <div style="display: flex; gap: 1rem;">
-        <router-link to="/import" class="btn-secondary">JSON Import Studio</router-link>
+        <router-link to="/admin/import" class="btn-secondary">JSON Import Studio</router-link>
         <button @click="showCreateProvider = !showCreateProvider" class="btn-primary">
           {{ showCreateProvider ? 'Cancel' : '+ New Provider' }}
         </button>
@@ -428,6 +428,12 @@ onMounted(() => loadData())
 <style scoped>
 .view-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
 .view-header h2 { margin: 0; color: var(--color-text-primary); }
+.glass-panel {
+  /* Reduce 'glass' transparency so panels are more readable against dark backgrounds */
+  background: rgba(12,14,16,0.96);
+  border: 1px solid rgba(255,255,255,0.03);
+  box-shadow: 0 6px 18px rgba(0,0,0,0.5);
+}
 
 .form-panel { padding: 1.5rem; margin-bottom: 2rem; }
 .form-panel h3 { margin-top: 0; margin-bottom: 1rem; font-size: 1.1rem; }
@@ -442,7 +448,8 @@ onMounted(() => loadData())
 
 .provider-header {
   padding: 1.5rem;
-  background: rgba(0, 0, 0, 0.2);
+  /* stronger, less transparent header so content underneath doesn't bleed through */
+  background: rgba(0, 0, 0, 0.72);
   border-bottom: 1px solid var(--glass-border);
   display: flex;
   justify-content: space-between;
@@ -500,7 +507,8 @@ tbody tr:hover { background: rgba(255, 255, 255, 0.02); }
   flex-wrap: wrap;
   padding: 0.4rem 0.6rem;
   margin-bottom: 0.3rem;
-  background: rgba(0, 0, 0, 0.15);
+  /* make endpoint rows more opaque for readability */
+  background: rgba(0, 0, 0, 0.55);
   border: 1px solid var(--glass-border);
   border-radius: 6px;
   cursor: pointer;
@@ -508,8 +516,8 @@ tbody tr:hover { background: rgba(255, 255, 255, 0.02); }
   font-size: 0.85rem;
 }
 .endpoint-row:hover {
-  background: rgba(0, 229, 255, 0.05);
-  border-color: rgba(0, 229, 255, 0.3);
+  background: rgba(0, 229, 255, 0.06);
+  border-color: rgba(0, 229, 255, 0.26);
 }
 .ep-path {
   font-family: monospace;
@@ -533,14 +541,16 @@ tbody tr:hover { background: rgba(255, 255, 255, 0.02); }
 .modal-overlay {
   position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0,0,0,0.5);
+  /* slightly darker overlay so modals stand out more from the page */
+  background: rgba(0,0,0,0.75);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
 }
 .modal-content {
-  background: var(--color-bg-base);
+  /* make modal content nearly opaque to avoid strong background bleed */
+  background: rgba(12,14,16,0.98);
   padding: 2rem;
   width: 400px;
   max-width: 90vw;

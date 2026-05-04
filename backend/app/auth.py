@@ -37,16 +37,10 @@ def get_oidc_owner_id(token: Optional[str]) -> Optional[str]:
 
 
 def can_request(model, token):
-    # Keep current behavior by default; strict checks activate behind feature flag.
+    # Delegate request admission to middleware when access control is enabled.
+    # This keeps unprotected endpoints open while protected/quota-scoped endpoints
+    # are enforced centrally in AccessControlMiddleware.
     if not is_access_control_enabled():
         return True
 
-    if get_api_key_context(token) is not None:
-        return True
-
-    if is_oidc_auth_enabled():
-        claims = get_oidc_claims(token)
-        return claims is not None and has_self_service_access(claims)
-
-    return False
-
+    return True

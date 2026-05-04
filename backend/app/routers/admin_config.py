@@ -50,7 +50,10 @@ async def update_provider(provider_id: str, payload: ProviderUpdate, _: None = D
             prefix=payload.prefix,
             default_base_url=payload.default_base_url,
             default_request_timeout=payload.default_request_timeout,
-            default_health_timeout=payload.default_health_timeout
+            default_health_timeout=payload.default_health_timeout,
+            sync_provider_ratelimits=payload.sync_provider_ratelimits,
+            max_upstream_retry_seconds=payload.max_upstream_retry_seconds,
+            route_fallbacks=payload.route_fallbacks
         )
         if not updated:
             raise HTTPException(status_code=404, detail="Provider not found")

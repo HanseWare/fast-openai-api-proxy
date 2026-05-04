@@ -43,6 +43,7 @@
             <div class="rate-row"><span>Minute</span><span>{{ fmt(ratelimits[p.id].remaining_minute) }} / {{ fmt(ratelimits[p.id].limit_minute) }}</span></div>
             <div class="rate-row"><span>Hour</span><span>{{ fmt(ratelimits[p.id].remaining_hour) }} / {{ fmt(ratelimits[p.id].limit_hour) }}</span></div>
             <div class="rate-row"><span>Day</span><span>{{ fmt(ratelimits[p.id].remaining_day) }} / {{ fmt(ratelimits[p.id].limit_day) }}</span></div>
+            <div class="rate-row"><span>Day</span><span>{{ fmt(ratelimits[p.id].remaining_month) }} / {{ fmt(ratelimits[p.id].limit_month) }}</span></div>
             <div class="rate-row meta"><span>Updated</span><span>{{ ratelimits[p.id].updated_at }}</span></div>
           </div>
           <div v-else class="muted">No snapshot</div>

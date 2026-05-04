@@ -68,14 +68,32 @@ def extract_provider_ratelimits(headers: httpx.Headers) -> dict:
     limits = {}
     for key, val in headers.items():
         k = key.lower()
-        if k == 'x-ratelimit-limit-minute': limits['limit_minute'] = int(val)
+        if k == 'x-ratelimit-limit-second':limits['limit_second'] = int(val)
+        elif k == 'x-ratelimit-limit-minute': limits['limit_minute'] = int(val)
         elif k == 'x-ratelimit-remaining-minute': limits['remaining_minute'] = int(val)
         elif k == 'x-ratelimit-limit-hour': limits['limit_hour'] = int(val)
         elif k == 'x-ratelimit-remaining-hour': limits['remaining_hour'] = int(val)
         elif k == 'x-ratelimit-limit-day': limits['limit_day'] = int(val)
         elif k == 'x-ratelimit-remaining-day': limits['remaining_day'] = int(val)
-        elif k == 'ratelimit-limit': limits['limit_minute'] = int(val)
-        elif k == 'ratelimit-remaining': limits['remaining_minute'] = int(val)
+        elif k == 'x-ratelimit-limit-month': limits['limit_month'] = int(val)
+        elif k == 'x-ratelimit-remaining-month': limits['remaining_month'] = int(val)
+        elif k == 'ratelimit-limit': limits['ratelimit_limit'] = int(val)
+        elif k == 'ratelimit-remaining': limits['ratelimit_remaining'] = int(val)
+        elif k == 'ratelimit-reset': limits['ratelimit_reset'] = int(val)
+        elif k == 'retry-after': limits['retry_after'] = int(val)
+
+    if 'ratelimit_limit' in limits:
+        ratelimit_limit = limits['ratelimit_limit']
+        if 'limit_second' in limits and ratelimit_limit == limits['limit_second']:
+            limits['current_limiting_window'] = 'second'
+        elif 'limit_minute' in limits and ratelimit_limit == limits['limit_minute']:
+            limits['current_limiting_window'] = 'minute'
+        elif 'limit_hour' in limits and ratelimit_limit == limits['limit_hour']:
+            limits['current_limiting_window'] = 'hour'
+        elif 'limit_day' in limits and ratelimit_limit == limits['limit_day']:
+            limits['current_limiting_window'] = 'day'
+        elif 'limit_month' in limits and ratelimit_limit == limits['limit_month']:
+            limits['current_limiting_window'] = 'month'
     return limits
 
 
@@ -87,12 +105,11 @@ def _raise_if_provider_rate_limited(model_data: Dict[str, Any]) -> None:
     if not provider_name:
         return
 
-    exhausted_windows = store.get_exhausted_provider_ratelimit_windows(provider_name)
-    if exhausted_windows:
-        windows = ", ".join(exhausted_windows)
+    exhausted_window = store.get_exhausted_provider_ratelimit_window(provider_name)
+    if exhausted_window:
         raise HTTPException(
             status_code=429,
-            detail=f"Upstream provider rate limit exhausted for {provider_name} ({windows})",
+            detail=f"Upstream provider rate limit exhausted for {provider_name} ({exhausted_window})",
         )
 
 
@@ -133,7 +150,7 @@ async def handle_request(request: Request, api_path: str):
     logger.info({"provider": model_data.get('provider'), "model_requested": model_data.get('model_requested', model), "model_used":model_data.get('target_model_name', model), "api_path": api_path, "as_stream": stream})
 
     # Add the API key for external models
-    token = model_data.get('api_key', token)
+    token = model_data.get('api_key', "ignored")
 
     _raise_if_provider_rate_limited(model_data)
 
