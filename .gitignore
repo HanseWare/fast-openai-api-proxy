@@ -12,3 +12,4 @@ backend/configs/mylab-configs.yaml
 /.idea/inspectionProfiles/profiles_settings.xml
 /.idea/inspectionProfiles/Project_Default.xml
 /.idea/vcs.xml
+backend/docker-compose.yaml
