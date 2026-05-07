@@ -13,3 +13,7 @@ backend/configs/mylab-configs.yaml
 /.idea/inspectionProfiles/Project_Default.xml
 /.idea/vcs.xml
 backend/docker-compose.yaml
+venv
+.venv
+node_modules
+.ai
