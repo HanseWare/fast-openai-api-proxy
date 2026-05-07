@@ -17,3 +17,6 @@ venv
 .venv
 node_modules
 .ai
+__pycache__
+*.pyc
+.pytest_cache
