@@ -25,7 +25,7 @@
           </div>
           <div class="input-group">
             <label>Model Type Scope</label>
-            <select v-model="newBudget.model_type">
+            <select v-model="newBudget.scope">
               <option value="">All Types</option>
               <option value="llm">LLM (Text)</option>
               <option value="embedding">Embedding</option>
@@ -68,7 +68,7 @@
             <td style="text-transform: capitalize;">{{ b.entity_type }}</td>
             <td class="mono">{{ b.entity_id }}</td>
             <td>
-              <span v-if="b.model_type" class="status-pill status-pill--success">{{ b.model_type }}</span>
+              <span v-if="b.scope" class="status-pill status-pill--success">{{ b.scope }}</span>
               <span v-else class="status-pill status-pill--neutral">All</span>
             </td>
             <td style="text-transform: capitalize;">{{ b.window }}</td>
@@ -107,7 +107,7 @@ const creating = ref(false)
 const newBudget = ref({
   entity_type: 'user',
   entity_id: '',
-  model_type: '',
+  scope: '',
   window: 'daily',
   budget_amount: null
 })
@@ -132,10 +132,10 @@ async function createBudget() {
       window: newBudget.value.window,
       budget_amount: newBudget.value.budget_amount,
     }
-    if (newBudget.value.model_type) {
-      payload.model_type = newBudget.value.model_type
+    if (newBudget.value.scope) {
+      payload.scope = newBudget.value.scope
     } else {
-      payload.model_type = null
+      payload.scope = null
     }
 
     await fetchApi('/budgets', {

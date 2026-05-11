@@ -90,10 +90,10 @@ async def _resolve_budget(request: Request, model_data: dict, usage_value: Optio
     enqueue_request_log(
         api_key_id=api_key_id,
         timestamp=int(time.time()),
-        model_name=model_data.get("model_requested", ""),
+        requested_model=model_data.get("model_requested", ""),
         target_model_name=model_data.get("target_model_name", ""),
         provider=model_data.get("provider", ""),
-        model_type=m_type,
+        scope=m_type,
         usage=final_usage,
         usage_unit=usage_unit,
         price=cost,

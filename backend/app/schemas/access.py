@@ -30,7 +30,7 @@ class ProtectedEndpointRuleRead(ProtectedEndpointRule):
 class BudgetBase(BaseModel):
     entity_type: str = Field(..., pattern="^(user|group)$")
     entity_id: str = Field(..., min_length=1)
-    model_type: Optional[str] = None
+    scope: Optional[str] = None
     window: str = Field(..., pattern="^(daily|monthly)$")
     budget_amount: float = Field(..., ge=0)
 
@@ -47,7 +47,7 @@ class BudgetRead(BudgetBase):
 class BudgetUsageRead(BaseModel):
     entity_type: str
     entity_id: str
-    model_type: Optional[str] = None
+    scope: Optional[str] = None
     window: str
     window_bucket: str
     cost: float
@@ -56,10 +56,10 @@ class RequestLogRead(BaseModel):
     id: str
     api_key_id: Optional[str] = None
     timestamp: int
-    model_name: Optional[str] = None
+    requested_model: Optional[str] = None
     target_model_name: Optional[str] = None
     provider: Optional[str] = None
-    model_type: Optional[str] = None
+    scope: Optional[str] = None
     usage: Optional[float] = None
     usage_unit: Optional[str] = None
     price: Optional[float] = None

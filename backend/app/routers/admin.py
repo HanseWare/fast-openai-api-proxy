@@ -279,7 +279,7 @@ async def create_budget(payload: BudgetCreate, _: None = Depends(require_admin))
             entity_id=payload.entity_id,
             window=payload.window,
             budget_amount=payload.budget_amount,
-            model_type=payload.model_type
+            scope=payload.scope
         )
     except sqlite3.IntegrityError as exc:
         raise HTTPException(status_code=409, detail="Budget already exists for this entity and window") from exc

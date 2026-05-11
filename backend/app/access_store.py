@@ -54,31 +54,31 @@ class AccessStore:
                     id TEXT PRIMARY KEY,
                     entity_type TEXT NOT NULL,
                     entity_id TEXT NOT NULL,
-                    model_type TEXT,
+                    scope TEXT,
                     window TEXT NOT NULL,
                     budget_amount REAL NOT NULL,
                     created_at INTEGER NOT NULL,
-                    UNIQUE(entity_type, entity_id, model_type, window)
+                    UNIQUE(entity_type, entity_id, scope, window)
                 );
 
                 CREATE TABLE IF NOT EXISTS budget_usage (
                     entity_type TEXT NOT NULL,
                     entity_id TEXT NOT NULL,
-                    model_type TEXT,
+                    scope TEXT,
                     window TEXT NOT NULL,
                     window_bucket TEXT NOT NULL,
                     cost REAL NOT NULL,
-                    PRIMARY KEY(entity_type, entity_id, model_type, window, window_bucket)
+                    PRIMARY KEY(entity_type, entity_id, scope, window, window_bucket)
                 );
 
                 CREATE TABLE IF NOT EXISTS request_logs (
                     id TEXT PRIMARY KEY,
                     api_key_id TEXT,
                     timestamp INTEGER NOT NULL,
-                    model_name TEXT,
+                    requested_model TEXT,
                     target_model_name TEXT,
                     provider TEXT,
-                    model_type TEXT,
+                    scope TEXT,
                     usage REAL,
                     usage_unit TEXT,
                     price REAL,
@@ -337,17 +337,17 @@ class AccessStore:
             row = conn.execute("SELECT * FROM budgets WHERE id = ?", (budget_id,)).fetchone()
             return dict(row) if row else None
 
-    def create_budget(self, entity_type: str, entity_id: str, window: str, budget_amount: float, model_type: Optional[str] = None) -> dict:
+    def create_budget(self, entity_type: str, entity_id: str, window: str, budget_amount: float, scope: Optional[str] = None) -> dict:
         budget_id = str(uuid.uuid4())
         now = int(time.time())
         with self._lock:
             with self._connect() as conn:
                 conn.execute(
                     """
-                    INSERT INTO budgets (id, entity_type, entity_id, model_type, window, budget_amount, created_at)
+                    INSERT INTO budgets (id, entity_type, entity_id, scope, window, budget_amount, created_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (budget_id, entity_type, entity_id, model_type, window, budget_amount, now)
+                    (budget_id, entity_type, entity_id, scope, window, budget_amount, now)
                 )
         return self.get_budget(budget_id)
 
@@ -367,8 +367,8 @@ class AccessStore:
 
     # --- Async Worker / Usage Logs ---
 
-    def log_request(self, api_key_id: Optional[str], timestamp: int, model_name: Optional[str], 
-                    target_model_name: Optional[str], provider: Optional[str], model_type: Optional[str], 
+    def log_request(self, api_key_id: Optional[str], timestamp: int, requested_model: Optional[str], 
+                    target_model_name: Optional[str], provider: Optional[str], scope: Optional[str], 
                     usage: Optional[float], usage_unit: Optional[str], price: Optional[float], 
                     price_per_unit: Optional[float], cost: Optional[float]) -> str:
         log_id = str(uuid.uuid4())
@@ -376,29 +376,29 @@ class AccessStore:
             with self._connect() as conn:
                 conn.execute(
                     """
-                    INSERT INTO request_logs (id, api_key_id, timestamp, model_name, target_model_name, provider, model_type, usage, usage_unit, price, price_per_unit, cost)
+                    INSERT INTO request_logs (id, api_key_id, timestamp, requested_model, target_model_name, provider, scope, usage, usage_unit, price, price_per_unit, cost)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (log_id, api_key_id, timestamp, model_name, target_model_name, provider, model_type, usage, usage_unit, price, price_per_unit, cost)
+                    (log_id, api_key_id, timestamp, requested_model, target_model_name, provider, scope, usage, usage_unit, price, price_per_unit, cost)
                 )
         return log_id
 
-    def add_budget_usage(self, entity_type: str, entity_id: str, window: str, window_bucket: str, cost: float, model_type: Optional[str] = None) -> None:
+    def add_budget_usage(self, entity_type: str, entity_id: str, window: str, window_bucket: str, cost: float, scope: Optional[str] = None) -> None:
         if cost == 0.0:
             return
             
         with self._lock:
             with self._connect() as conn:
                 # Upsert budget usage
-                # We normalize model_type to empty string if None for the unique constraint since NULL behaves differently in some unique indexes.
-                mod_type = model_type if model_type is not None else ""
+                # We normalize scope to empty string if None for the unique constraint since NULL behaves differently in some unique indexes.
+                mod_scope = scope if scope is not None else ""
                 
                 row = conn.execute(
                     """
                     SELECT cost FROM budget_usage
-                    WHERE entity_type = ? AND entity_id = ? AND model_type = ? AND window = ? AND window_bucket = ?
+                    WHERE entity_type = ? AND entity_id = ? AND scope = ? AND window = ? AND window_bucket = ?
                     """,
-                    (entity_type, entity_id, mod_type, window, window_bucket)
+                    (entity_type, entity_id, mod_scope, window, window_bucket)
                 ).fetchone()
                 
                 if row:
@@ -406,17 +406,17 @@ class AccessStore:
                         """
                         UPDATE budget_usage
                         SET cost = cost + ?
-                        WHERE entity_type = ? AND entity_id = ? AND model_type = ? AND window = ? AND window_bucket = ?
+                        WHERE entity_type = ? AND entity_id = ? AND scope = ? AND window = ? AND window_bucket = ?
                         """,
-                        (cost, entity_type, entity_id, mod_type, window, window_bucket)
+                        (cost, entity_type, entity_id, mod_scope, window, window_bucket)
                     )
                 else:
                     conn.execute(
                         """
-                        INSERT INTO budget_usage (entity_type, entity_id, model_type, window, window_bucket, cost)
+                        INSERT INTO budget_usage (entity_type, entity_id, scope, window, window_bucket, cost)
                         VALUES (?, ?, ?, ?, ?, ?)
                         """,
-                        (entity_type, entity_id, mod_type, window, window_bucket, cost)
+                        (entity_type, entity_id, mod_scope, window, window_bucket, cost)
                     )
 
     def get_all_budget_usage(self, entity_type: str, entity_id: str) -> list[dict]:

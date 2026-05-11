@@ -47,9 +47,9 @@ class BudgetService:
             
         usages = await asyncio.to_thread(access_store.get_all_budget_usage, entity_type, entity_id)
         for u in usages:
-            mod_type = u["model_type"] or ""
-            self._add_usage(entity_type, entity_id, u["window"], u["window_bucket"], mod_type, u["cost"])
-            
+            mod_scope = u["scope"] or ""
+            self._add_usage(entity_type, entity_id, u["window"], u["window_bucket"], mod_scope, u["cost"])
+
         self.initialized_entities.add(entity_key)
 
     async def reserve_budget(self, entities: List[Tuple[str, str]], model_type: str, min_credits: float) -> Tuple[bool, Optional[Tuple[str, str]]]:
@@ -69,8 +69,8 @@ class BudgetService:
 
                 applicable_budgets = []
                 for b in budgets:
-                    b_mod = b["model_type"] or ""
-                    if b_mod == "" or b_mod == model_type:
+                    b_scope = b["scope"] or ""
+                    if b_scope == "" or b_scope == model_type:
                         applicable_budgets.append(b)
                         
                 if not applicable_budgets:
@@ -79,11 +79,11 @@ class BudgetService:
                 can_afford = True
                 for b in applicable_budgets:
                     b_window = b["window"]
-                    b_mod = b["model_type"] or ""
+                    b_scope = b["scope"] or ""
                     b_bucket = daily_bucket if b_window == "daily" else monthly_bucket
                     
-                    used = self._get_usage(entity_type, entity_id, b_window, b_bucket, b_mod)
-                    
+                    used = self._get_usage(entity_type, entity_id, b_window, b_bucket, b_scope)
+
                     if used + min_credits > b["budget_amount"]:
                         can_afford = False
                         break
@@ -92,10 +92,10 @@ class BudgetService:
                     # Deduct (reserve) instantly
                     for b in applicable_budgets:
                         b_window = b["window"]
-                        b_mod = b["model_type"] or ""
+                        b_scope = b["scope"] or ""
                         b_bucket = daily_bucket if b_window == "daily" else monthly_bucket
-                        self._add_usage(entity_type, entity_id, b_window, b_bucket, b_mod, min_credits)
-                        
+                        self._add_usage(entity_type, entity_id, b_window, b_bucket, b_scope, min_credits)
+
                     return True, (entity_type, entity_id)
                     
         return False, None
@@ -110,21 +110,21 @@ class BudgetService:
             budgets = await asyncio.to_thread(access_store.list_budgets, entity_type, entity_id)
             applicable_budgets = []
             for b in budgets:
-                b_mod = b["model_type"] or ""
-                if b_mod == "" or b_mod == model_type:
+                b_scope = b["scope"] or ""
+                if b_scope == "" or b_scope == model_type:
                     applicable_budgets.append(b)
                     
             adjustment = actual_cost - min_credits
             
             for b in applicable_budgets:
                 b_window = b["window"]
-                b_mod = b["model_type"] or ""
+                b_scope = b["scope"] or ""
                 b_bucket = daily_bucket if b_window == "daily" else monthly_bucket
                 
                 # Update in-memory
-                self._add_usage(entity_type, entity_id, b_window, b_bucket, b_mod, adjustment)
-                
+                self._add_usage(entity_type, entity_id, b_window, b_bucket, b_scope, adjustment)
+
                 # Push actual cost directly to async worker to persist DB increment
-                enqueue_budget_usage(entity_type, entity_id, b_window, b_bucket, actual_cost, b_mod)
+                enqueue_budget_usage(entity_type, entity_id, b_window, b_bucket, actual_cost, b_scope)
 
 budget_service = BudgetService()

@@ -84,7 +84,7 @@ def test_access_key_lifecycle_and_budget_api():
             "entity_id": created_owner_id,
             "window": "daily",
             "budget_amount": 100.0,
-            "model_type": "llm"
+            "scope": "llm"
         },
     )
     assert budget_create.status_code == 200

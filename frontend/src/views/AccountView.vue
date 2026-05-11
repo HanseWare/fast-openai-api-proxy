@@ -106,13 +106,13 @@
           <h2>Your Budgets</h2>
           <p class="muted" v-if="!decoratedBudgets.length">No budgets allocated for your account.</p>
           <div v-else class="quota-list">
-            <article v-for="item in decoratedBudgets" :key="item.budget.id" class="quota-card">
-              <div class="quota-card-head">
-                <div>
-                  <h3>{{ item.budget.window.charAt(0).toUpperCase() + item.budget.window.slice(1) }} Budget</h3>
-                  <p class="muted">Scope: {{ item.budget.model_type || 'Global (All Models)' }}</p>
-                </div>
-              </div>
+             <article v-for="item in decoratedBudgets" :key="item.budget.id" class="quota-card">
+               <div class="quota-card-head">
+                 <div>
+                   <h3>{{ item.budget.window.charAt(0).toUpperCase() + item.budget.window.slice(1) }} Budget</h3>
+                   <p class="muted">Scope: {{ item.budget.scope || 'Global (All Models)' }}</p>
+                 </div>
+               </div>
 
               <div class="quota-card-meta">
                 <span class="status-pill" :class="`status-pill--${item.statusTone}`">{{ item.statusLabel }}</span>

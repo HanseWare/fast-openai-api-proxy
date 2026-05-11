@@ -22,10 +22,10 @@ async def usage_worker_task():
                     access_store.log_request,
                     api_key_id=item.get("api_key_id"),
                     timestamp=item.get("timestamp"),
-                    model_name=item.get("model_name"),
+                    requested_model=item.get("requested_model"),
                     target_model_name=item.get("target_model_name"),
                     provider=item.get("provider"),
-                    model_type=item.get("model_type"),
+                    scope=item.get("scope"),
                     usage=item.get("usage"),
                     usage_unit=item.get("usage_unit"),
                     price=item.get("price"),
@@ -40,7 +40,7 @@ async def usage_worker_task():
                     window=item.get("window"),
                     window_bucket=item.get("window_bucket"),
                     cost=item.get("cost"),
-                    model_type=item.get("model_type")
+                    scope=item.get("scope")
                 )
                 
             usage_queue.task_done()
@@ -50,16 +50,16 @@ async def usage_worker_task():
         except Exception as e:
             logger.error(f"Error in usage worker: {e}")
 
-def enqueue_request_log(api_key_id: Optional[str], timestamp: int, model_name: str, target_model_name: str,
-                        provider: str, model_type: str, usage: float, usage_unit: str, price: float, price_per_unit: float, cost: float):
+def enqueue_request_log(api_key_id: Optional[str], timestamp: int, requested_model: str, target_model_name: str,
+                        provider: str, scope: str, usage: float, usage_unit: str, price: float, price_per_unit: float, cost: float):
     usage_queue.put_nowait({
         "type": "log_request",
         "api_key_id": api_key_id,
         "timestamp": timestamp,
-        "model_name": model_name,
+        "requested_model": requested_model,
         "target_model_name": target_model_name,
         "provider": provider,
-        "model_type": model_type,
+        "scope": scope,
         "usage": usage,
         "usage_unit": usage_unit,
         "price": price,
@@ -67,7 +67,7 @@ def enqueue_request_log(api_key_id: Optional[str], timestamp: int, model_name: s
         "cost": cost
     })
 
-def enqueue_budget_usage(entity_type: str, entity_id: str, window: str, window_bucket: str, cost: float, model_type: Optional[str] = None):
+def enqueue_budget_usage(entity_type: str, entity_id: str, window: str, window_bucket: str, cost: float, scope: Optional[str] = None):
     usage_queue.put_nowait({
         "type": "add_budget_usage",
         "entity_type": entity_type,
@@ -75,5 +75,5 @@ def enqueue_budget_usage(entity_type: str, entity_id: str, window: str, window_b
         "window": window,
         "window_bucket": window_bucket,
         "cost": cost,
-        "model_type": model_type
+        "scope": scope
     })
