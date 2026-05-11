@@ -50,307 +50,44 @@ class AccessStore:
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_protected_endpoint_unique
                     ON protected_endpoints(path, method, model_pattern);
 
-                CREATE TABLE IF NOT EXISTS api_key_quotas (
-                    api_key_id TEXT PRIMARY KEY,
-                    requests_per_minute INTEGER NOT NULL,
+                CREATE TABLE IF NOT EXISTS budgets (
+                    id TEXT PRIMARY KEY,
+                    entity_type TEXT NOT NULL,
+                    entity_id TEXT NOT NULL,
+                    model_type TEXT,
+                    window TEXT NOT NULL,
+                    budget_amount REAL NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    UNIQUE(entity_type, entity_id, model_type, window)
+                );
+
+                CREATE TABLE IF NOT EXISTS budget_usage (
+                    entity_type TEXT NOT NULL,
+                    entity_id TEXT NOT NULL,
+                    model_type TEXT,
+                    window TEXT NOT NULL,
+                    window_bucket TEXT NOT NULL,
+                    cost REAL NOT NULL,
+                    PRIMARY KEY(entity_type, entity_id, model_type, window, window_bucket)
+                );
+
+                CREATE TABLE IF NOT EXISTS request_logs (
+                    id TEXT PRIMARY KEY,
+                    api_key_id TEXT,
+                    timestamp INTEGER NOT NULL,
+                    model_name TEXT,
+                    target_model_name TEXT,
+                    provider TEXT,
+                    model_type TEXT,
+                    usage REAL,
+                    usage_unit TEXT,
+                    price REAL,
+                    price_per_unit REAL,
+                    cost REAL,
                     FOREIGN KEY(api_key_id) REFERENCES api_keys(id)
-                );
-
-                CREATE TABLE IF NOT EXISTS api_key_usage (
-                    api_key_id TEXT NOT NULL,
-                    window_minute INTEGER NOT NULL,
-                    request_count INTEGER NOT NULL,
-                    PRIMARY KEY(api_key_id, window_minute)
-                );
-
-                CREATE TABLE IF NOT EXISTS usage_counters (
-                    owner_id TEXT NOT NULL,
-                    api_path TEXT NOT NULL,
-                    model TEXT NOT NULL,
-                    window_type TEXT NOT NULL,
-                    window_bucket INTEGER NOT NULL,
-                    request_count INTEGER NOT NULL,
-                    PRIMARY KEY(owner_id, api_path, model, window_type, window_bucket)
-                );
-
-                CREATE TABLE IF NOT EXISTS quota_policies (
-                    id TEXT PRIMARY KEY,
-                    api_path TEXT NOT NULL,
-                    model TEXT NOT NULL,
-                    window_type TEXT NOT NULL,
-                    request_limit INTEGER NOT NULL,
-                    enforce_per_user INTEGER NOT NULL DEFAULT 1,
-                    created_at INTEGER NOT NULL
-                );
-
-                CREATE UNIQUE INDEX IF NOT EXISTS idx_quota_policy_unique
-                    ON quota_policies(api_path, model);
-
-                CREATE TABLE IF NOT EXISTS quota_policy_usage (
-                    policy_id TEXT NOT NULL,
-                    bucket_key TEXT NOT NULL,
-                    window_bucket INTEGER NOT NULL,
-                    request_count INTEGER NOT NULL,
-                    PRIMARY KEY(policy_id, bucket_key, window_bucket)
-                );
-
-                CREATE TABLE IF NOT EXISTS quota_overrides (
-                    id TEXT PRIMARY KEY,
-                    api_path TEXT NOT NULL,
-                    model TEXT NOT NULL,
-                    owner_id TEXT NOT NULL,
-                    window_type TEXT NOT NULL,
-                    request_limit INTEGER NOT NULL,
-                    exempt INTEGER NOT NULL DEFAULT 0,
-                    starts_at INTEGER,
-                    ends_at INTEGER,
-                    created_at INTEGER NOT NULL
-                );
-
-                CREATE UNIQUE INDEX IF NOT EXISTS idx_quota_override_unique
-                    ON quota_overrides(api_path, model, owner_id);
-
-                CREATE TABLE IF NOT EXISTS quota_override_usage (
-                    override_id TEXT NOT NULL,
-                    bucket_key TEXT NOT NULL,
-                    window_bucket INTEGER NOT NULL,
-                    request_count INTEGER NOT NULL,
-                    PRIMARY KEY(override_id, bucket_key, window_bucket)
-                );
-
-                CREATE TABLE IF NOT EXISTS providers (
-                    id TEXT PRIMARY KEY,
-                    name TEXT NOT NULL UNIQUE,
-                    api_key_variable TEXT,
-                    prefix TEXT NOT NULL DEFAULT '',
-                    default_base_url TEXT,
-                    default_request_timeout INTEGER,
-                    default_health_timeout INTEGER,
-                    max_upstream_retry_seconds INTEGER DEFAULT 0,
-                    sync_provider_ratelimits BOOLEAN DEFAULT 0,
-                    route_fallbacks TEXT DEFAULT '{}',
-                    created_at INTEGER NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS provider_models (
-                    id TEXT PRIMARY KEY,
-                    provider_id TEXT NOT NULL,
-                    name TEXT NOT NULL,
-                    owned_by TEXT DEFAULT 'FOAP',
-                    hide_on_models_endpoint BOOLEAN DEFAULT 0,
-                    FOREIGN KEY(provider_id) REFERENCES providers(id),
-                    UNIQUE(provider_id, name)
-                );
-
-                CREATE TABLE IF NOT EXISTS provider_model_endpoints (
-                    id TEXT PRIMARY KEY,
-                    model_id TEXT NOT NULL,
-                    path TEXT NOT NULL,
-                    target_model_name TEXT NOT NULL,
-                    target_base_url TEXT,
-                    request_timeout INTEGER,
-                    health_timeout INTEGER,
-                    fallback_model_name TEXT,
-                    FOREIGN KEY(model_id) REFERENCES provider_models(id),
-                    UNIQUE(model_id, path)
-                );
-
-                CREATE TABLE IF NOT EXISTS model_aliases (
-                    id TEXT PRIMARY KEY,
-                    alias_name TEXT NOT NULL UNIQUE,
-                    target_model_name TEXT NOT NULL,
-                    owned_by TEXT DEFAULT 'FOAP',
-                    hide_on_models_endpoint BOOLEAN DEFAULT 0,
-                    created_at INTEGER NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS provider_ratelimits (
-                    provider_name TEXT PRIMARY KEY,
-                    limit_second INTEGER,
-                    remaining_second INTEGER,
-                    limit_minute INTEGER,
-                    remaining_minute INTEGER,
-                    limit_hour INTEGER,
-                    remaining_hour INTEGER,
-                    limit_day INTEGER,
-                    remaining_day INTEGER,
-                    limit_month INTEGER,
-                    remaining_month INTEGER,
-                    ratelimit_limit INTEGER,
-                    ratelimit_remaining INTEGER,
-                    ratelimit_reset INTEGER,
-                    ratelimit_retry_after INTEGER,
-                    current_limiting_window TEXT DEFAULT 'second',
-                    updated_at INTEGER NOT NULL
                 );
                 """
             )
-
-            try:
-                with conn:
-                    conn.execute("ALTER TABLE protected_endpoints ADD COLUMN model_pattern TEXT NOT NULL DEFAULT '*'")
-            except sqlite3.OperationalError:
-                pass
-            
-            try:
-                with conn:
-                    conn.execute("ALTER TABLE providers ADD COLUMN max_upstream_retry_seconds INTEGER DEFAULT 0")
-            except sqlite3.OperationalError:
-                pass
-
-            try:
-                with conn:
-                    conn.execute("ALTER TABLE providers ADD COLUMN sync_provider_ratelimits BOOLEAN DEFAULT 0")
-            except sqlite3.OperationalError:
-                pass
-
-            try:
-                with conn:
-                    conn.execute("ALTER TABLE provider_model_endpoints ADD COLUMN fallback_model_name TEXT")
-            except sqlite3.OperationalError:
-                pass
-            
-            try:
-                with conn:
-                    conn.execute("ALTER TABLE providers ADD COLUMN route_fallbacks TEXT DEFAULT '{}'")
-            except sqlite3.OperationalError:
-                pass
-
-            # provider_models: owned_by + hide_on_models_endpoint
-            try:
-                with conn:
-                    conn.execute("ALTER TABLE provider_models ADD COLUMN owned_by TEXT DEFAULT 'FOAP'")
-            except sqlite3.OperationalError:
-                pass
-            try:
-                with conn:
-                    conn.execute("ALTER TABLE provider_models ADD COLUMN hide_on_models_endpoint BOOLEAN DEFAULT 0")
-            except sqlite3.OperationalError:
-                pass
-
-            # model_aliases: owned_by + hide_on_models_endpoint
-            try:
-                with conn:
-                    conn.execute("ALTER TABLE model_aliases ADD COLUMN owned_by TEXT DEFAULT 'FOAP'")
-            except sqlite3.OperationalError:
-                pass
-            try:
-                with conn:
-                    conn.execute("ALTER TABLE model_aliases ADD COLUMN hide_on_models_endpoint BOOLEAN DEFAULT 0")
-            except sqlite3.OperationalError:
-                pass
-
-    def get_provider_ratelimits(self, provider_name: str) -> Optional[dict]:
-        with self._connect() as conn:
-            row = conn.execute(
-                """
-                SELECT *
-                FROM provider_ratelimits
-                WHERE provider_name = ?
-                """,
-                (provider_name,),
-            ).fetchone()
-
-        return dict(row) if row is not None else None
-
-    def sync_provider_ratelimits(self, provider_name: str, limits: dict[str, Any]) -> dict:
-        now = int(time.time())
-        existing = self.get_provider_ratelimits(provider_name) or {}
-        fields = ("limit_second", "remaining_second","limit_minute", "remaining_minute", "limit_hour", "remaining_hour", "limit_day", "remaining_day", "limit_month", "remaining_month", "ratelimit_limit", "ratelimit_remaining", "ratelimit_reset", "ratelimit_retry_after", "updated_at")
-        merged = {
-            "provider_name": provider_name,
-        }
-
-        for field in fields:
-            merged[field] = existing.get(field)
-            if field in limits and limits[field] is not None:
-                merged[field] = int(limits[field])
-
-        if "current_limiting_window" in limits:
-            merged["current_limiting_window"] = limits["current_limiting_window"]
-        else:
-            merged["current_limiting_window"] = existing.get("current_limiting_window", "second")
-
-        with self._lock:
-            with self._connect() as conn:
-                conn.execute(
-                    """
-                    INSERT INTO provider_ratelimits (
-                        provider_name,
-                        limit_second,
-                        remaining_second,
-                        limit_minute,
-                        remaining_minute,
-                        limit_hour,
-                        remaining_hour,
-                        limit_day,
-                        remaining_day,
-                        limit_month,
-                        remaining_month,
-                        ratelimit_limit,
-                        ratelimit_remaining,
-                        ratelimit_reset,
-                        ratelimit_retry_after,
-                        current_limiting_window,
-                        updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(provider_name)
-                    DO UPDATE SET
-                        limit_second = excluded.limit_second,
-                        remaining_second = excluded.remaining_second,
-                        limit_minute = excluded.limit_minute,
-                        remaining_minute = excluded.remaining_minute,
-                        limit_hour = excluded.limit_hour,
-                        remaining_hour = excluded.remaining_hour,
-                        limit_day = excluded.limit_day,
-                        remaining_day = excluded.remaining_day,
-                        limit_month = excluded.limit_month,
-                        remaining_month = excluded.remaining_month,
-                        ratelimit_limit = excluded.ratelimit_limit,
-                        ratelimit_remaining = excluded.ratelimit_remaining,
-                        ratelimit_reset = excluded.ratelimit_reset,
-                        ratelimit_retry_after = excluded.ratelimit_retry_after,
-                        current_limiting_window = excluded.current_limiting_window,
-                        updated_at = excluded.updated_at
-                    """,
-                    (
-                        provider_name,
-                        merged["limit_second"],
-                        merged["remaining_second"],
-                        merged["limit_minute"],
-                        merged["remaining_minute"],
-                        merged["limit_hour"],
-                        merged["remaining_hour"],
-                        merged["limit_day"],
-                        merged["remaining_day"],
-                        merged["limit_month"],
-                        merged["remaining_month"],
-                        merged["ratelimit_limit"],
-                        merged["ratelimit_remaining"],
-                        merged["ratelimit_reset"],
-                        merged["ratelimit_retry_after"],
-                        merged["current_limiting_window"],
-                        now,
-                    ),
-                )
-
-        merged["updated_at"] = now
-        return merged
-
-    def get_exhausted_provider_ratelimit_window(self, provider_name: str) -> str | None:
-        snapshot = self.get_provider_ratelimits(provider_name)
-        if not snapshot:
-            return None
-        window = snapshot.get("current_limiting_window")
-        remaining = snapshot.get("ratelimit_remaining")
-        retry_after = snapshot.get("ratelimit_retry_after")
-        updated_at = snapshot.get("updated_at")
-        if remaining is not None and isinstance(remaining, int) and remaining <= 0 and retry_after is not None and isinstance(retry_after, int) and updated_at is not None and isinstance(updated_at, int):
-            time_to_reset = updated_at + retry_after - int(time.time())
-            logger.info(f"Time to reset {provider_name} ratelimit window: {time_to_reset} seconds")
-            if time_to_reset > 0:
-                return window
-        return None
 
     @staticmethod
     def _hash_secret(secret: str) -> str:
@@ -420,7 +157,6 @@ class AccessStore:
             rows = conn.execute(query, params).fetchall()
 
         def _masked_from_hash(secret_hash: str) -> str:
-            # Show a compact, non-reversible masked label with foap- prefix (does not reveal the secret)
             if not secret_hash or len(secret_hash) < 12:
                 return "foap-****"
             return f"foap-{secret_hash[:8]}…{secret_hash[-4:]}"
@@ -489,226 +225,6 @@ class AccessStore:
             ).fetchone()
         return row is not None
 
-    def set_quota(self, api_key_id: str, requests_per_minute: int) -> None:
-        with self._lock:
-            with self._connect() as conn:
-                conn.execute(
-                    """
-                    INSERT INTO api_key_quotas (api_key_id, requests_per_minute)
-                    VALUES (?, ?)
-                    ON CONFLICT(api_key_id)
-                    DO UPDATE SET requests_per_minute = excluded.requests_per_minute
-                    """,
-                    (api_key_id, requests_per_minute),
-                )
-
-    def get_quota(self, api_key_id: str) -> Optional[int]:
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT requests_per_minute FROM api_key_quotas WHERE api_key_id = ?",
-                (api_key_id,),
-            ).fetchone()
-        return None if row is None else int(row["requests_per_minute"])
-
-    def consume_quota(self, api_key_id: str) -> tuple[bool, Optional[int]]:
-        quota = self.get_quota(api_key_id)
-        if quota is None:
-            return True, None
-
-        window_minute = int(time.time() // 60)
-        retry_after = 60 - int(time.time() % 60)
-
-        with self._lock:
-            with self._connect() as conn:
-                row = conn.execute(
-                    """
-                    SELECT request_count
-                    FROM api_key_usage
-                    WHERE api_key_id = ? AND window_minute = ?
-                    """,
-                    (api_key_id, window_minute),
-                ).fetchone()
-
-                current_count = 0 if row is None else int(row["request_count"])
-                if current_count >= quota:
-                    return False, retry_after
-
-                if row is None:
-                    conn.execute(
-                        """
-                        INSERT INTO api_key_usage (api_key_id, window_minute, request_count)
-                        VALUES (?, ?, 1)
-                        """,
-                        (api_key_id, window_minute),
-                    )
-                else:
-                    conn.execute(
-                        """
-                        UPDATE api_key_usage
-                        SET request_count = request_count + 1
-                        WHERE api_key_id = ? AND window_minute = ?
-                        """,
-                        (api_key_id, window_minute),
-                    )
-
-        return True, None
-
-    def get_quota_usage(self, api_key_id: str) -> Optional[dict]:
-        quota = self.get_quota(api_key_id)
-        if quota is None:
-            return None
-
-        now = int(time.time())
-        window_minute = now // 60
-        reset_in_seconds = 60 - (now % 60)
-
-        with self._connect() as conn:
-            row = conn.execute(
-                """
-                SELECT request_count
-                FROM api_key_usage
-                WHERE api_key_id = ? AND window_minute = ?
-                """,
-                (api_key_id, window_minute),
-            ).fetchone()
-
-        used = 0 if row is None else int(row["request_count"])
-        remaining = max(quota - used, 0)
-        return {
-            "api_key_id": api_key_id,
-            "requests_per_minute": quota,
-            "used": used,
-            "remaining": remaining,
-            "reset_in_seconds": reset_in_seconds,
-        }
-
-    def record_usage(self, owner_id: str, api_path: str, model: str) -> None:
-        normalized_owner = self._normalize_owner_id(owner_id)
-        normalized_path = self._normalize_path(api_path)
-        normalized_model = self._normalize_model(model)
-        now = int(time.time())
-
-        with self._lock:
-            with self._connect() as conn:
-                for window_type in ("minute", "hour", "day"):
-                    window_bucket, _ = self._window_bucket(now, window_type)
-                    conn.execute(
-                        """
-                        INSERT INTO usage_counters (owner_id, api_path, model, window_type, window_bucket, request_count)
-                        VALUES (?, ?, ?, ?, ?, 1)
-                        ON CONFLICT(owner_id, api_path, model, window_type, window_bucket)
-                        DO UPDATE SET request_count = request_count + 1
-                        """,
-                        (normalized_owner, normalized_path, normalized_model, window_type, window_bucket),
-                    )
-
-    def get_usage_summary(
-        self,
-        owner_id: str,
-        model: Optional[str] = None,
-        api_path: Optional[str] = None,
-        window_size: int = 6,
-    ) -> dict:
-        normalized_owner = self._normalize_owner_id(owner_id)
-        normalized_model = self._normalize_model(model) if model is not None else None
-        normalized_path = self._normalize_path(api_path) if api_path is not None else None
-        window_size = max(1, min(int(window_size), 96))
-        now = int(time.time())
-
-        windows: dict[str, Any] = {"minute": [], "hour": [], "day": []}
-        totals: dict[str, int] = {"minute": 0, "hour": 0, "day": 0}
-
-        with self._connect() as conn:
-            for window_type in ("minute", "hour", "day"):
-                window_bucket, reset_in_seconds = self._window_bucket(now, window_type)
-
-                clauses = ["owner_id = ?", "window_type = ?", "window_bucket = ?"]
-                params: list[object] = [normalized_owner, window_type, window_bucket]
-
-                if normalized_model is not None:
-                    clauses.append("model = ?")
-                    params.append(normalized_model)
-                if normalized_path is not None:
-                    clauses.append("api_path = ?")
-                    params.append(normalized_path)
-
-                where_sql = " AND ".join(clauses)
-
-                total_row = conn.execute(
-                    f"SELECT COALESCE(SUM(request_count), 0) AS total FROM usage_counters WHERE {where_sql}",
-                    params,
-                ).fetchone()
-                totals[window_type] = int(total_row["total"]) if total_row is not None else 0
-
-                rows = conn.execute(
-                    f"""
-                    SELECT api_path, model, request_count
-                    FROM usage_counters
-                    WHERE {where_sql}
-                    ORDER BY request_count DESC, model, api_path
-                    """,
-                    params,
-                ).fetchall()
-
-                windows[window_type] = [
-                    {
-                        "api_path": row["api_path"],
-                        "model": row["model"],
-                        "request_count": int(row["request_count"]),
-                    }
-                    for row in rows
-                ]
-
-                trend_rows = conn.execute(
-                    f"""
-                    SELECT window_bucket, COALESCE(SUM(request_count), 0) AS total
-                    FROM usage_counters
-                    WHERE owner_id = ?
-                      AND window_type = ?
-                      AND window_bucket BETWEEN ? AND ?
-                      {"AND model = ?" if normalized_model is not None else ""}
-                      {"AND api_path = ?" if normalized_path is not None else ""}
-                    GROUP BY window_bucket
-                    ORDER BY window_bucket ASC
-                    """,
-                    (
-                        [
-                            normalized_owner,
-                            window_type,
-                            window_bucket - window_size + 1,
-                            window_bucket,
-                        ]
-                        + ([normalized_model] if normalized_model is not None else [])
-                        + ([normalized_path] if normalized_path is not None else [])
-                    ),
-                ).fetchall()
-
-                trend_map = {int(row["window_bucket"]): int(row["total"]) for row in trend_rows}
-                windows[window_type + "_trend"] = [
-                    {
-                        "window_bucket": bucket,
-                        "request_count": trend_map.get(bucket, 0),
-                    }
-                    for bucket in range(window_bucket - window_size + 1, window_bucket + 1)
-                ]
-
-                windows[window_type + "_meta"] = {
-                    "window_bucket": window_bucket,
-                    "reset_in_seconds": reset_in_seconds,
-                }
-
-        return {
-            "owner_id": normalized_owner,
-            "generated_at": now,
-            "filters": {
-                "model": normalized_model,
-                "api_path": normalized_path,
-                "window_size": window_size,
-            },
-            "totals": totals,
-            "windows": windows,
-        }
-
     @staticmethod
     def _normalize_method(method: str) -> str:
         return method.strip().upper()
@@ -725,48 +241,6 @@ class AccessStore:
     @staticmethod
     def _normalize_model(model: str) -> str:
         return model.strip()
-
-    @staticmethod
-    def _normalize_owner_id(owner_id: str) -> str:
-        return owner_id.strip()
-
-    @staticmethod
-    def _quota_override_state(starts_at: Optional[int], ends_at: Optional[int], now: Optional[int] = None) -> tuple[bool, str]:
-        now = int(time.time()) if now is None else now
-        active_now = (starts_at is None or starts_at <= now) and (ends_at is None or ends_at > now)
-        if active_now:
-            return True, "active"
-        if starts_at is not None and starts_at > now:
-            return False, "scheduled"
-        return False, "expired"
-
-    @staticmethod
-    def _build_quota_override_read(row: sqlite3.Row, now: Optional[int] = None) -> dict:
-        active_now, window_state = AccessStore._quota_override_state(row["starts_at"], row["ends_at"], now=now)
-        return {
-            "id": row["id"],
-            "api_path": row["api_path"],
-            "model": row["model"],
-            "owner_id": row["owner_id"],
-            "window_type": row["window_type"],
-            "request_limit": int(row["request_limit"]),
-            "exempt": bool(row["exempt"]),
-            "starts_at": row["starts_at"],
-            "ends_at": row["ends_at"],
-            "created_at": int(row["created_at"]),
-            "active_now": active_now,
-            "window_state": window_state,
-        }
-
-    @staticmethod
-    def _window_bucket(now: int, window_type: str) -> tuple[int, int]:
-        if window_type == "minute":
-            return now // 60, 60 - (now % 60)
-        if window_type == "hour":
-            return now // 3600, 3600 - (now % 3600)
-        if window_type == "day":
-            return now // 86400, 86400 - (now % 86400)
-        raise ValueError(f"Unsupported window_type: {window_type}")
 
     def list_protected_endpoints(self) -> list[dict]:
         with self._connect() as conn:
@@ -842,515 +316,115 @@ class AccessStore:
                     
         return False
 
-    def list_quota_policies(
-        self,
-        api_path: Optional[str] = None,
-        model: Optional[str] = None,
-        limit: Optional[int] = None,
-        offset: Optional[int] = None,
-    ) -> tuple[list[dict], int]:
-        clauses: list[str] = []
-        params: list[object] = []
-
-        if api_path is not None:
-            clauses.append("api_path = ?")
-            params.append(self._normalize_path(api_path))
-        if model is not None:
-            clauses.append("model = ?")
-            params.append(self._normalize_model(model))
-
-        where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-
-        count_sql = f"SELECT COUNT(*) AS total FROM quota_policies {where_sql}"
-        data_sql = f"""
-            SELECT id, api_path, model, window_type, request_limit, enforce_per_user
-            FROM quota_policies
-            {where_sql}
-            ORDER BY api_path, model
-        """
-
-        if limit is not None:
-            data_sql += " LIMIT ?"
-            params_with_pagination = [*params, limit]
-            if offset is not None:
-                data_sql += " OFFSET ?"
-                params_with_pagination.append(offset)
-        else:
-            params_with_pagination = params
-
-        with self._connect() as conn:
-            total_row = conn.execute(count_sql, params).fetchone()
-            rows = conn.execute(data_sql, params_with_pagination).fetchall()
-
-        total = 0 if total_row is None else int(total_row["total"])
+    # --- BUDGETS ---
+    
+    def list_budgets(self, entity_type: Optional[str] = None, entity_id: Optional[str] = None) -> list[dict]:
+        query = "SELECT * FROM budgets WHERE 1=1"
+        params = []
+        if entity_type:
+            query += " AND entity_type = ?"
+            params.append(entity_type)
+        if entity_id:
+            query += " AND entity_id = ?"
+            params.append(entity_id)
         
-        return [
-            {
-                "id": row["id"],
-                "api_path": row["api_path"],
-                "model": row["model"],
-                "window_type": row["window_type"],
-                "request_limit": int(row["request_limit"]),
-                "enforce_per_user": bool(row["enforce_per_user"]),
-            }
-            for row in rows
-        ], total
-
-    def get_quota_policy(self, policy_id: str) -> Optional[dict]:
         with self._connect() as conn:
-            row = conn.execute(
-                """
-                SELECT id, api_path, model, window_type, request_limit, enforce_per_user
-                FROM quota_policies
-                WHERE id = ?
-                """,
-                (policy_id,),
-            ).fetchone()
-        
-        if row is None:
-            return None
+            rows = conn.execute(query, tuple(params)).fetchall()
+            return [dict(row) for row in rows]
             
-        return {
-            "id": row["id"],
-            "api_path": row["api_path"],
-            "model": row["model"],
-            "window_type": row["window_type"],
-            "request_limit": int(row["request_limit"]),
-            "enforce_per_user": bool(row["enforce_per_user"]),
-        }
+    def get_budget(self, budget_id: str) -> Optional[dict]:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM budgets WHERE id = ?", (budget_id,)).fetchone()
+            return dict(row) if row else None
 
-    def create_quota_policy(
-        self,
-        api_path: str,
-        model: str,
-        window_type: str,
-        request_limit: int,
-        enforce_per_user: bool,
-    ) -> dict:
-        policy_id = str(uuid.uuid4())
-        normalized_path = self._normalize_path(api_path)
-        normalized_model = self._normalize_model(model)
+    def create_budget(self, entity_type: str, entity_id: str, window: str, budget_amount: float, model_type: Optional[str] = None) -> dict:
+        budget_id = str(uuid.uuid4())
         now = int(time.time())
-
         with self._lock:
             with self._connect() as conn:
                 conn.execute(
                     """
-                    INSERT INTO quota_policies (id, api_path, model, window_type, request_limit, enforce_per_user, created_at)
+                    INSERT INTO budgets (id, entity_type, entity_id, model_type, window, budget_amount, created_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (
-                        policy_id,
-                        normalized_path,
-                        normalized_model,
-                        window_type,
-                        request_limit,
-                        1 if enforce_per_user else 0,
-                        now,
-                    ),
+                    (budget_id, entity_type, entity_id, model_type, window, budget_amount, now)
                 )
+        return self.get_budget(budget_id)
 
-        return {
-            "id": policy_id,
-            "api_path": normalized_path,
-            "model": normalized_model,
-            "window_type": window_type,
-            "request_limit": request_limit,
-            "enforce_per_user": enforce_per_user,
-        }
-
-    def update_quota_policy(
-        self,
-        policy_id: str,
-        api_path: str,
-        model: str,
-        window_type: str,
-        request_limit: int,
-        enforce_per_user: bool,
-    ) -> Optional[dict]:
-        normalized_path = self._normalize_path(api_path)
-        normalized_model = self._normalize_model(model)
-
+    def update_budget(self, budget_id: str, budget_amount: float) -> Optional[dict]:
         with self._lock:
             with self._connect() as conn:
-                cursor = conn.execute(
-                    """
-                    UPDATE quota_policies
-                    SET api_path = ?, model = ?, window_type = ?, request_limit = ?, enforce_per_user = ?
-                    WHERE id = ?
-                    """,
-                    (
-                        normalized_path,
-                        normalized_model,
-                        window_type,
-                        request_limit,
-                        1 if enforce_per_user else 0,
-                        policy_id,
-                    ),
-                )
+                cursor = conn.execute("UPDATE budgets SET budget_amount = ? WHERE id = ?", (budget_amount, budget_id))
                 if cursor.rowcount == 0:
                     return None
+        return self.get_budget(budget_id)
 
-        return {
-            "id": policy_id,
-            "api_path": normalized_path,
-            "model": normalized_model,
-            "window_type": window_type,
-            "request_limit": request_limit,
-            "enforce_per_user": enforce_per_user,
-        }
-
-    def delete_quota_policy(self, policy_id: str) -> bool:
+    def delete_budget(self, budget_id: str) -> bool:
         with self._lock:
             with self._connect() as conn:
-                conn.execute("DELETE FROM quota_policy_usage WHERE policy_id = ?", (policy_id,))
-                cursor = conn.execute("DELETE FROM quota_policies WHERE id = ?", (policy_id,))
+                cursor = conn.execute("DELETE FROM budgets WHERE id = ?", (budget_id,))
                 return cursor.rowcount > 0
 
-    def find_quota_policy(self, api_path: str, model: str) -> Optional[dict]:
-        normalized_path = self._normalize_path(api_path)
-        normalized_model = self._normalize_model(model)
+    # --- Async Worker / Usage Logs ---
 
-        with self._connect() as conn:
-            row = conn.execute(
-                """
-                SELECT id, api_path, model, window_type, request_limit, enforce_per_user
-                FROM quota_policies
-                WHERE api_path = ? AND model = ?
-                LIMIT 1
-                """,
-                (normalized_path, normalized_model),
-            ).fetchone()
-
-        if row is None:
-            return None
-
-        return {
-            "id": row["id"],
-            "api_path": row["api_path"],
-            "model": row["model"],
-            "window_type": row["window_type"],
-            "request_limit": int(row["request_limit"]),
-            "enforce_per_user": bool(row["enforce_per_user"]),
-        }
-
-    def consume_quota_policy(self, policy_id: str, bucket_key: str, window_type: str, request_limit: int) -> tuple[bool, int]:
-        now = int(time.time())
-        window_bucket, retry_after = self._window_bucket(now, window_type)
-
-        with self._lock:
-            with self._connect() as conn:
-                row = conn.execute(
-                    """
-                    SELECT request_count
-                    FROM quota_policy_usage
-                    WHERE policy_id = ? AND bucket_key = ? AND window_bucket = ?
-                    """,
-                    (policy_id, bucket_key, window_bucket),
-                ).fetchone()
-
-                current_count = 0 if row is None else int(row["request_count"])
-                if current_count >= request_limit:
-                    return False, retry_after
-
-                if row is None:
-                    conn.execute(
-                        """
-                        INSERT INTO quota_policy_usage (policy_id, bucket_key, window_bucket, request_count)
-                        VALUES (?, ?, ?, 1)
-                        """,
-                        (policy_id, bucket_key, window_bucket),
-                    )
-                else:
-                    conn.execute(
-                        """
-                        UPDATE quota_policy_usage
-                        SET request_count = request_count + 1
-                        WHERE policy_id = ? AND bucket_key = ? AND window_bucket = ?
-                        """,
-                        (policy_id, bucket_key, window_bucket),
-                    )
-
-        return True, retry_after
-
-    def list_quota_overrides(
-        self,
-        owner_id: Optional[str] = None,
-        api_path: Optional[str] = None,
-        model: Optional[str] = None,
-        exempt: Optional[bool] = None,
-        active_only: bool = False,
-        limit: Optional[int] = None,
-        offset: Optional[int] = None,
-    ) -> tuple[list[dict], int]:
-        clauses: list[str] = []
-        params: list[object] = []
-        now = int(time.time())
-
-        if owner_id is not None:
-            clauses.append("owner_id = ?")
-            params.append(self._normalize_owner_id(owner_id))
-        if api_path is not None:
-            clauses.append("api_path = ?")
-            params.append(self._normalize_path(api_path))
-        if model is not None:
-            clauses.append("model = ?")
-            params.append(self._normalize_model(model))
-        if exempt is not None:
-            clauses.append("exempt = ?")
-            params.append(1 if exempt else 0)
-        if active_only:
-            clauses.append("(starts_at IS NULL OR starts_at <= ?)")
-            clauses.append("(ends_at IS NULL OR ends_at > ?)")
-            params.extend([now, now])
-
-        where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-
-        count_sql = f"SELECT COUNT(*) AS total FROM quota_overrides {where_sql}"
-        data_sql = f"""
-            SELECT id, api_path, model, owner_id, window_type, request_limit, exempt, starts_at, ends_at, created_at
-            FROM quota_overrides
-            {where_sql}
-            ORDER BY created_at DESC, api_path, model, owner_id
-        """
-
-        if limit is not None:
-            data_sql += " LIMIT ?"
-            params_with_pagination = [*params, limit]
-            if offset is not None:
-                data_sql += " OFFSET ?"
-                params_with_pagination.append(offset)
-        else:
-            params_with_pagination = params
-
-        with self._connect() as conn:
-            total_row = conn.execute(count_sql, params).fetchone()
-            rows = conn.execute(data_sql, params_with_pagination).fetchall()
-
-        total = 0 if total_row is None else int(total_row["total"])
-        return [self._build_quota_override_read(row, now=now) for row in rows], total
-
-    def get_quota_override(self, override_id: str) -> Optional[dict]:
-        now = int(time.time())
-        with self._connect() as conn:
-            row = conn.execute(
-                """
-                SELECT id, api_path, model, owner_id, window_type, request_limit, exempt, starts_at, ends_at, created_at
-                FROM quota_overrides
-                WHERE id = ?
-                """,
-                (override_id,),
-            ).fetchone()
-            
-        if row is None:
-            return None
-            
-        return self._build_quota_override_read(row, now=now)
-
-    def create_quota_override(
-        self,
-        api_path: str,
-        model: str,
-        owner_id: str,
-        window_type: str,
-        request_limit: int,
-        exempt: bool,
-        starts_at: Optional[int],
-        ends_at: Optional[int],
-    ) -> dict:
-        override_id = str(uuid.uuid4())
-        normalized_path = self._normalize_path(api_path)
-        normalized_model = self._normalize_model(model)
-        normalized_owner = self._normalize_owner_id(owner_id)
-        now = int(time.time())
-
+    def log_request(self, api_key_id: Optional[str], timestamp: int, model_name: Optional[str], 
+                    target_model_name: Optional[str], provider: Optional[str], model_type: Optional[str], 
+                    usage: Optional[float], usage_unit: Optional[str], price: Optional[float], 
+                    price_per_unit: Optional[float], cost: Optional[float]) -> str:
+        log_id = str(uuid.uuid4())
         with self._lock:
             with self._connect() as conn:
                 conn.execute(
                     """
-                    INSERT INTO quota_overrides
-                    (id, api_path, model, owner_id, window_type, request_limit, exempt, starts_at, ends_at, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO request_logs (id, api_key_id, timestamp, model_name, target_model_name, provider, model_type, usage, usage_unit, price, price_per_unit, cost)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (
-                        override_id,
-                        normalized_path,
-                        normalized_model,
-                        normalized_owner,
-                        window_type,
-                        request_limit,
-                        1 if exempt else 0,
-                        starts_at,
-                        ends_at,
-                        now,
-                    ),
+                    (log_id, api_key_id, timestamp, model_name, target_model_name, provider, model_type, usage, usage_unit, price, price_per_unit, cost)
                 )
+        return log_id
 
-        return {
-            "id": override_id,
-            "api_path": normalized_path,
-            "model": normalized_model,
-            "owner_id": normalized_owner,
-            "window_type": window_type,
-            "request_limit": request_limit,
-            "exempt": exempt,
-            "starts_at": starts_at,
-            "ends_at": ends_at,
-            "created_at": now,
-            "active_now": self._quota_override_state(starts_at, ends_at, now=now)[0],
-            "window_state": self._quota_override_state(starts_at, ends_at, now=now)[1],
-        }
-
-    def update_quota_override(
-        self,
-        override_id: str,
-        api_path: str,
-        model: str,
-        owner_id: str,
-        window_type: str,
-        request_limit: int,
-        exempt: bool,
-        starts_at: Optional[int],
-        ends_at: Optional[int],
-    ) -> Optional[dict]:
-        normalized_path = self._normalize_path(api_path)
-        normalized_model = self._normalize_model(model)
-        normalized_owner = self._normalize_owner_id(owner_id)
-
+    def add_budget_usage(self, entity_type: str, entity_id: str, window: str, window_bucket: str, cost: float, model_type: Optional[str] = None) -> None:
+        if cost == 0.0:
+            return
+            
         with self._lock:
             with self._connect() as conn:
-                cursor = conn.execute(
-                    """
-                    UPDATE quota_overrides
-                    SET api_path = ?, model = ?, owner_id = ?, window_type = ?, request_limit = ?, exempt = ?, starts_at = ?, ends_at = ?
-                    WHERE id = ?
-                    """,
-                    (
-                        normalized_path,
-                        normalized_model,
-                        normalized_owner,
-                        window_type,
-                        request_limit,
-                        1 if exempt else 0,
-                        starts_at,
-                        ends_at,
-                        override_id,
-                    ),
-                )
-                if cursor.rowcount == 0:
-                    return None
-
+                # Upsert budget usage
+                # We normalize model_type to empty string if None for the unique constraint since NULL behaves differently in some unique indexes.
+                mod_type = model_type if model_type is not None else ""
+                
                 row = conn.execute(
                     """
-                    SELECT created_at
-                    FROM quota_overrides
-                    WHERE id = ?
+                    SELECT cost FROM budget_usage
+                    WHERE entity_type = ? AND entity_id = ? AND model_type = ? AND window = ? AND window_bucket = ?
                     """,
-                    (override_id,),
+                    (entity_type, entity_id, mod_type, window, window_bucket)
                 ).fetchone()
-
-        return {
-            "id": override_id,
-            "api_path": normalized_path,
-            "model": normalized_model,
-            "owner_id": normalized_owner,
-            "window_type": window_type,
-            "request_limit": request_limit,
-            "exempt": exempt,
-            "starts_at": starts_at,
-            "ends_at": ends_at,
-            "created_at": int(row["created_at"]) if row is not None else int(time.time()),
-            "active_now": self._quota_override_state(starts_at, ends_at)[0],
-            "window_state": self._quota_override_state(starts_at, ends_at)[1],
-        }
-
-    def delete_quota_override(self, override_id: str) -> bool:
-        with self._lock:
-            with self._connect() as conn:
-                conn.execute("DELETE FROM quota_override_usage WHERE override_id = ?", (override_id,))
-                cursor = conn.execute("DELETE FROM quota_overrides WHERE id = ?", (override_id,))
-                return cursor.rowcount > 0
-
-    def find_active_quota_override(self, api_path: str, model: str, owner_id: str) -> Optional[dict]:
-        normalized_path = self._normalize_path(api_path)
-        normalized_model = self._normalize_model(model)
-        normalized_owner = self._normalize_owner_id(owner_id)
-        now = int(time.time())
-
-        with self._connect() as conn:
-            row = conn.execute(
-                """
-                SELECT id, api_path, model, owner_id, window_type, request_limit, exempt, starts_at, ends_at, created_at
-                FROM quota_overrides
-                WHERE api_path = ?
-                  AND model = ?
-                  AND owner_id = ?
-                  AND (starts_at IS NULL OR starts_at <= ?)
-                  AND (ends_at IS NULL OR ends_at > ?)
-                LIMIT 1
-                """,
-                (normalized_path, normalized_model, normalized_owner, now, now),
-            ).fetchone()
-
-        if row is None:
-            return None
-
-        return {
-            "id": row["id"],
-            "api_path": row["api_path"],
-            "model": row["model"],
-            "owner_id": row["owner_id"],
-            "window_type": row["window_type"],
-            "request_limit": int(row["request_limit"]),
-            "exempt": bool(row["exempt"]),
-            "starts_at": row["starts_at"],
-            "ends_at": row["ends_at"],
-            "created_at": int(row["created_at"]),
-            "active_now": self._quota_override_state(row["starts_at"], row["ends_at"], now=now)[0],
-            "window_state": self._quota_override_state(row["starts_at"], row["ends_at"], now=now)[1],
-        }
-
-    def consume_quota_override(
-        self, override_id: str, bucket_key: str, window_type: str, request_limit: int
-    ) -> tuple[bool, int]:
-        now = int(time.time())
-        window_bucket, retry_after = self._window_bucket(now, window_type)
-
-        with self._lock:
-            with self._connect() as conn:
-                row = conn.execute(
-                    """
-                    SELECT request_count
-                    FROM quota_override_usage
-                    WHERE override_id = ? AND bucket_key = ? AND window_bucket = ?
-                    """,
-                    (override_id, bucket_key, window_bucket),
-                ).fetchone()
-
-                current_count = 0 if row is None else int(row["request_count"])
-                if current_count >= request_limit:
-                    return False, retry_after
-
-                if row is None:
+                
+                if row:
                     conn.execute(
                         """
-                        INSERT INTO quota_override_usage (override_id, bucket_key, window_bucket, request_count)
-                        VALUES (?, ?, ?, 1)
+                        UPDATE budget_usage
+                        SET cost = cost + ?
+                        WHERE entity_type = ? AND entity_id = ? AND model_type = ? AND window = ? AND window_bucket = ?
                         """,
-                        (override_id, bucket_key, window_bucket),
+                        (cost, entity_type, entity_id, mod_type, window, window_bucket)
                     )
                 else:
                     conn.execute(
                         """
-                        UPDATE quota_override_usage
-                        SET request_count = request_count + 1
-                        WHERE override_id = ? AND bucket_key = ? AND window_bucket = ?
+                        INSERT INTO budget_usage (entity_type, entity_id, model_type, window, window_bucket, cost)
+                        VALUES (?, ?, ?, ?, ?, ?)
                         """,
-                        (override_id, bucket_key, window_bucket),
+                        (entity_type, entity_id, mod_type, window, window_bucket, cost)
                     )
 
-        return True, retry_after
-
+    def get_all_budget_usage(self, entity_type: str, entity_id: str) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM budget_usage WHERE entity_type = ? AND entity_id = ?",
+                (entity_type, entity_id)
+            ).fetchall()
+            return [dict(row) for row in rows]
 
 store = AccessStore()
-

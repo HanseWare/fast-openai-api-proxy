@@ -70,30 +70,23 @@ class ModelsHandler:
             for m in models_db:
                 full_model_name = f"{prefix}{m['name']}"
                 
-                endpoints_db = config_store.list_endpoints_for_model(m["id"])
-                eps = []
-                for e in endpoints_db:
-                    endpoint_fallback = e.get("fallback_model_name")
-                    if not endpoint_fallback:
-                        endpoint_fallback = provider_route_fallbacks.get(e["path"])
-                    
-                    eps.append({
-                        "path": e["path"],
-                        "api_key": api_key,
-                        "provider": provider_name,
-                        "model_requested": m["name"],
-                        "target_base_url": e.get("target_base_url") or p.get("default_base_url") or "",
-                        "target_model_name": e.get("target_model_name"),
-                        "request_timeout": e.get("request_timeout") or p.get("default_request_timeout") or 60,
-                        "health_timeout": e.get("health_timeout") or p.get("default_health_timeout") or 60,
-                        "fallback_model_name": endpoint_fallback,
-                        "max_upstream_retry_seconds": p.get("max_upstream_retry_seconds", 0),
-                        "sync_provider_ratelimits": p.get("sync_provider_ratelimits", False)
-                    })
-                    
                 self.models[full_model_name] = {
-                    "model_info": {"endpoints": eps},
-                    "endpoints": eps,
+                    "id": full_model_name,
+                    "name": m["name"],
+                    "provider": provider_name,
+                    "api_key": api_key,
+                    "type": m.get("type", "llm"),
+                    "target_model_name": m.get("target_model_name"),
+                    "target_base_url": m.get("target_base_url") or p.get("base_url") or "",
+                    "fallback_model_name": m.get("fallback_model_name"),
+                    "supported_endpoints": m.get("supported_endpoints", []),
+                    "price_per_unit": float(m.get("price_per_unit", 0.0)),
+                    "min_credits_per_request": float(m.get("min_credits_per_request", 0.0)),
+                    "request_timeout": p.get("request_timeout") or 60,
+                    "health_timeout": p.get("health_timeout") or 60,
+                    "max_upstream_retry_seconds": p.get("max_upstream_retry_seconds", 0),
+                    "sync_provider_ratelimits": p.get("sync_provider_ratelimits", False),
+                    "provider_route_fallbacks": provider_route_fallbacks,
                     "owned_by": m.get("owned_by") or "FOAP",
                     "hide_on_models_endpoint": bool(m.get("hide_on_models_endpoint", 0))
                 }
@@ -106,9 +99,9 @@ class ModelsHandler:
                     name=provider_name,
                     api_key_variable=provider_config.get("api_key_variable"),
                     prefix=provider_config.get("prefix", ""),
-                    default_base_url=provider_config.get("default_base_url"),
-                    default_request_timeout=provider_config.get("default_request_timeout"),
-                    default_health_timeout=provider_config.get("default_health_timeout"),
+                    base_url=provider_config.get("base_url") or provider_config.get("default_base_url"),
+                    request_timeout=provider_config.get("request_timeout") or provider_config.get("default_request_timeout"),
+                    health_timeout=provider_config.get("health_timeout") or provider_config.get("default_health_timeout"),
                     max_upstream_retry_seconds=provider_config.get("max_upstream_retry_seconds", 0),
                     sync_provider_ratelimits=provider_config.get("sync_provider_ratelimits", False),
                     route_fallbacks=provider_config.get("route_fallbacks", {})
@@ -117,22 +110,47 @@ class ModelsHandler:
             models = provider_config.get("models", {})
             for model_name, model_info in models.items():
                 m = config_store.get_model_by_name(p["id"], model_name)
-                if not m:
-                    m = config_store.create_model(p["id"], model_name)
                 
-                endpoints = model_info.get("endpoints", [])
-                for ep in endpoints:
-                    e = config_store.get_endpoint_by_path(m["id"], ep["path"])
-                    if not e:
-                        config_store.create_endpoint(
-                            model_id=m["id"],
-                            path=ep["path"],
-                            target_model_name=ep["target_model_name"],
-                            target_base_url=ep.get("target_base_url"),
-                            request_timeout=ep.get("request_timeout"),
-                            health_timeout=ep.get("health_timeout"),
-                            fallback_model_name=ep.get("fallback_model_name")
-                        )
+                type_ = model_info.get("type", "llm")
+                target_model_name = model_info.get("target_model_name", model_name)
+                target_base_url = model_info.get("target_base_url")
+                fallback_model_name = model_info.get("fallback_model_name")
+                supported_endpoints = model_info.get("supported_endpoints", [])
+                price_per_unit = float(model_info.get("price_per_unit", 0.0))
+                min_credits_per_request = float(model_info.get("min_credits_per_request", 0.0))
+                
+                # Check for legacy endpoints config and migrate to supported_endpoints
+                if "endpoints" in model_info and not supported_endpoints:
+                    supported_endpoints = [ep["path"] for ep in model_info["endpoints"]]
+                
+                if not m:
+                    config_store.create_model(
+                        provider_id=p["id"],
+                        name=model_name,
+                        type=type_,
+                        target_model_name=target_model_name,
+                        target_base_url=target_base_url,
+                        fallback_model_name=fallback_model_name,
+                        supported_endpoints=supported_endpoints,
+                        price_per_unit=price_per_unit,
+                        min_credits_per_request=min_credits_per_request,
+                        owned_by=model_info.get("owned_by", "FOAP"),
+                        hide_on_models_endpoint=model_info.get("hide_on_models_endpoint", False)
+                    )
+                else:
+                    config_store.update_model(
+                        model_id=m["id"],
+                        name=model_name,
+                        type=type_,
+                        target_model_name=target_model_name,
+                        target_base_url=target_base_url,
+                        fallback_model_name=fallback_model_name,
+                        supported_endpoints=supported_endpoints,
+                        price_per_unit=price_per_unit,
+                        min_credits_per_request=min_credits_per_request,
+                        owned_by=model_info.get("owned_by", "FOAP"),
+                        hide_on_models_endpoint=model_info.get("hide_on_models_endpoint", False)
+                    )
 
     def get_model_data(self, model, api_path=None):
         resolved_model = model
@@ -140,15 +158,36 @@ class ModelsHandler:
         if alias_info:
             resolved_model = alias_info["target"]
         
-        model_entry = self.models.get(resolved_model)
-        if not model_entry:
+        m = self.models.get(resolved_model)
+        if not m:
             raise HTTPException(status_code=404, detail=f"Model {model} (resolved to {resolved_model}) not found")
+            
         if not api_path:
-            return model_entry
-        for endpoint in model_entry.get("endpoints", []):
-            if endpoint["path"] == api_path:
-                return endpoint
-        raise HTTPException(status_code=404, detail=f"API path {api_path} not supported for model {model}")
+            return m
+            
+        if api_path not in m["supported_endpoints"]:
+            raise HTTPException(status_code=404, detail=f"API path {api_path} not supported for model {model} (type {m['type']})")
+            
+        fallback = m.get("fallback_model_name")
+        if not fallback:
+            fallback = m.get("provider_route_fallbacks", {}).get(api_path)
+            
+        return {
+            "path": api_path,
+            "api_key": m["api_key"],
+            "provider": m["provider"],
+            "model_requested": m["name"],
+            "target_base_url": m["target_base_url"],
+            "target_model_name": m["target_model_name"],
+            "request_timeout": m["request_timeout"],
+            "health_timeout": m["health_timeout"],
+            "fallback_model_name": fallback,
+            "max_upstream_retry_seconds": m["max_upstream_retry_seconds"],
+            "sync_provider_ratelimits": m["sync_provider_ratelimits"],
+            "type": m["type"],
+            "price_per_unit": m["price_per_unit"],
+            "min_credits_per_request": m["min_credits_per_request"]
+        }
 
     def get_model(self, model):
         alias_info = self.aliases.get(model)

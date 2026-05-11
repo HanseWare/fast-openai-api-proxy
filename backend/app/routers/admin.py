@@ -22,25 +22,14 @@ from schemas.access import (
     AdminApiKeyCreate,
     ApiKeyCreateResponse,
     ApiKeyRead,
-    ModelQuotaPolicyCreate,
-    ModelQuotaPolicyRead,
-    ModelQuotaPolicyUpdate,
     ProtectedEndpointRule,
     ProtectedEndpointRuleRead,
-    QuotaPolicy,
-    QuotaOverrideCreate,
-    QuotaOverrideRead,
-    QuotaOverrideUpdate,
-    QuotaPolicyRead,
-    QuotaUsageRead,
+    BudgetRead,
+    BudgetCreate,
+    BudgetUpdate,
 )
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
-
-
-def _validate_override_window(starts_at: int | None, ends_at: int | None) -> None:
-    if starts_at is not None and ends_at is not None and ends_at <= starts_at:
-        raise HTTPException(status_code=400, detail="ends_at must be greater than starts_at")
 
 
 def require_admin(authorization: Optional[str] = Header(default=None), foap_session: Optional[str] = Cookie(default=None, alias="foap_session")) -> None:
@@ -263,186 +252,50 @@ async def delete_protected_endpoint(endpoint_id: str, _: None = Depends(require_
     return {"status": "deleted", "endpoint_id": endpoint_id}
 
 
-@router.put("/keys/{key_id}/quota", response_model=QuotaPolicyRead, summary="Set key quota")
-async def set_key_quota(key_id: str, payload: QuotaPolicy, _: None = Depends(require_admin)):
-    if not store.key_exists(key_id):
-        raise HTTPException(status_code=404, detail="API key not found")
+# --- BUDGETS ---
 
-    store.set_quota(api_key_id=key_id, requests_per_minute=payload.requests_per_minute)
-    return {"api_key_id": key_id, "requests_per_minute": payload.requests_per_minute}
-
-
-@router.get("/keys/{key_id}/quota", response_model=QuotaPolicyRead, summary="Get key quota")
-async def get_key_quota(key_id: str, _: None = Depends(require_admin)):
-    quota = store.get_quota(key_id)
-    if quota is None:
-        raise HTTPException(status_code=404, detail="Quota not configured")
-    return {"api_key_id": key_id, "requests_per_minute": quota}
-
-
-@router.get("/keys/{key_id}/usage", response_model=QuotaUsageRead, summary="Get current key quota usage")
-async def get_key_usage(key_id: str, _: None = Depends(require_admin)):
-    usage = store.get_quota_usage(key_id)
-    if usage is None:
-        raise HTTPException(status_code=404, detail="Quota not configured")
-    return usage
-
-
-@router.get("/quota-policies", response_model=list[ModelQuotaPolicyRead], summary="List quota policies")
-async def list_quota_policies(
-    response: Response,
-    api_path: Optional[str] = Query(default=None, min_length=1),
-    model: Optional[str] = Query(default=None, min_length=1),
-    limit: Optional[int] = Query(default=None, ge=1),
-    offset: Optional[int] = Query(default=None, ge=0),
-    _: None = Depends(require_admin),
+@router.get("/budgets", response_model=list[BudgetRead], summary="List all budgets")
+async def list_budgets(
+    entity_type: Optional[str] = Query(default=None),
+    entity_id: Optional[str] = Query(default=None),
+    _: None = Depends(require_admin)
 ):
-    policies, total = store.list_quota_policies(
-        api_path=api_path,
-        model=model,
-        limit=limit,
-        offset=offset,
-    )
-    response.headers["X-Total-Count"] = str(total)
-    response.headers["X-Returned-Count"] = str(len(policies))
-    if limit is not None:
-        response.headers["X-Limit"] = str(limit)
-    if offset is not None:
-        response.headers["X-Offset"] = str(offset)
-    return policies
+    return store.list_budgets(entity_type=entity_type, entity_id=entity_id)
 
 
-@router.get("/quota-policies/{policy_id}", response_model=ModelQuotaPolicyRead, summary="Get quota policy")
-async def get_quota_policy(policy_id: str, _: None = Depends(require_admin)):
-    policy = store.get_quota_policy(policy_id)
-    if not policy:
-        raise HTTPException(status_code=404, detail="Quota policy not found")
-    return policy
+@router.get("/budgets/{budget_id}", response_model=BudgetRead, summary="Get budget by ID")
+async def get_budget(budget_id: str, _: None = Depends(require_admin)):
+    budget = store.get_budget(budget_id)
+    if not budget:
+        raise HTTPException(status_code=404, detail="Budget not found")
+    return budget
 
 
-@router.post("/quota-policies", response_model=ModelQuotaPolicyRead, summary="Create quota policy")
-async def create_quota_policy(payload: ModelQuotaPolicyCreate, _: None = Depends(require_admin)):
+@router.post("/budgets", response_model=BudgetRead, summary="Create budget")
+async def create_budget(payload: BudgetCreate, _: None = Depends(require_admin)):
     try:
-        return store.create_quota_policy(
-            api_path=payload.api_path,
-            model=payload.model,
-            window_type=payload.window_type,
-            request_limit=payload.request_limit,
-            enforce_per_user=payload.enforce_per_user,
+        return store.create_budget(
+            entity_type=payload.entity_type,
+            entity_id=payload.entity_id,
+            window=payload.window,
+            budget_amount=payload.budget_amount,
+            model_type=payload.model_type
         )
     except sqlite3.IntegrityError as exc:
-        raise HTTPException(status_code=409, detail="Quota policy already exists for api_path + model") from exc
+        raise HTTPException(status_code=409, detail="Budget already exists for this entity and window") from exc
 
 
-@router.put("/quota-policies/{policy_id}", response_model=ModelQuotaPolicyRead, summary="Update quota policy")
-async def update_quota_policy(policy_id: str, payload: ModelQuotaPolicyUpdate, _: None = Depends(require_admin)):
-    try:
-        updated = store.update_quota_policy(
-            policy_id=policy_id,
-            api_path=payload.api_path,
-            model=payload.model,
-            window_type=payload.window_type,
-            request_limit=payload.request_limit,
-            enforce_per_user=payload.enforce_per_user,
-        )
-    except sqlite3.IntegrityError as exc:
-        raise HTTPException(status_code=409, detail="Quota policy already exists for api_path + model") from exc
-
+@router.put("/budgets/{budget_id}", response_model=BudgetRead, summary="Update budget amount")
+async def update_budget(budget_id: str, payload: BudgetUpdate, _: None = Depends(require_admin)):
+    updated = store.update_budget(budget_id, budget_amount=payload.budget_amount)
     if updated is None:
-        raise HTTPException(status_code=404, detail="Quota policy not found")
+        raise HTTPException(status_code=404, detail="Budget not found")
     return updated
 
 
-@router.delete("/quota-policies/{policy_id}", summary="Delete quota policy")
-async def delete_quota_policy(policy_id: str, _: None = Depends(require_admin)):
-    deleted = store.delete_quota_policy(policy_id)
+@router.delete("/budgets/{budget_id}", summary="Delete budget")
+async def delete_budget(budget_id: str, _: None = Depends(require_admin)):
+    deleted = store.delete_budget(budget_id)
     if not deleted:
-        raise HTTPException(status_code=404, detail="Quota policy not found")
-    return {"status": "deleted", "policy_id": policy_id}
-
-
-@router.get("/quota-overrides/{override_id}", response_model=QuotaOverrideRead, summary="Get quota override")
-async def get_quota_override(override_id: str, _: None = Depends(require_admin)):
-    override = store.get_quota_override(override_id)
-    if not override:
-        raise HTTPException(status_code=404, detail="Quota override not found")
-    return override
-
-
-@router.get("/quota-overrides", response_model=list[QuotaOverrideRead], summary="List quota overrides")
-async def list_quota_overrides(
-    response: Response,
-    owner_id: Optional[str] = Query(default=None, min_length=1),
-    api_path: Optional[str] = Query(default=None, min_length=1),
-    model: Optional[str] = Query(default=None, min_length=1),
-    exempt: Optional[bool] = Query(default=None),
-    active_only: bool = Query(default=False),
-    limit: Optional[int] = Query(default=None, ge=1),
-    offset: Optional[int] = Query(default=None, ge=0),
-    _: None = Depends(require_admin),
-):
-    overrides, total = store.list_quota_overrides(
-        owner_id=owner_id,
-        api_path=api_path,
-        model=model,
-        exempt=exempt,
-        active_only=active_only,
-        limit=limit,
-        offset=offset,
-    )
-    response.headers["X-Total-Count"] = str(total)
-    response.headers["X-Returned-Count"] = str(len(overrides))
-    if limit is not None:
-        response.headers["X-Limit"] = str(limit)
-    if offset is not None:
-        response.headers["X-Offset"] = str(offset)
-    return overrides
-
-
-@router.post("/quota-overrides", response_model=QuotaOverrideRead, summary="Create quota override")
-async def create_quota_override(payload: QuotaOverrideCreate, _: None = Depends(require_admin)):
-    _validate_override_window(payload.starts_at, payload.ends_at)
-    try:
-        return store.create_quota_override(
-            api_path=payload.api_path,
-            model=payload.model,
-            owner_id=payload.owner_id,
-            window_type=payload.window_type,
-            request_limit=payload.request_limit,
-            exempt=payload.exempt,
-            starts_at=payload.starts_at,
-            ends_at=payload.ends_at,
-        )
-    except sqlite3.IntegrityError as exc:
-        raise HTTPException(status_code=409, detail="Quota override already exists for api_path + model + owner_id") from exc
-
-
-@router.put("/quota-overrides/{override_id}", response_model=QuotaOverrideRead, summary="Update quota override")
-async def update_quota_override(override_id: str, payload: QuotaOverrideUpdate, _: None = Depends(require_admin)):
-    _validate_override_window(payload.starts_at, payload.ends_at)
-    try:
-        updated = store.update_quota_override(
-            override_id=override_id,
-            api_path=payload.api_path,
-            model=payload.model,
-            owner_id=payload.owner_id,
-            window_type=payload.window_type,
-            request_limit=payload.request_limit,
-            exempt=payload.exempt,
-            starts_at=payload.starts_at,
-            ends_at=payload.ends_at,
-        )
-    except sqlite3.IntegrityError as exc:
-        raise HTTPException(status_code=409, detail="Quota override already exists for api_path + model + owner_id") from exc
-
-    if updated is None:
-        raise HTTPException(status_code=404, detail="Quota override not found")
-    return updated
-
-
-@router.delete("/quota-overrides/{override_id}", summary="Delete quota override")
-async def delete_quota_override(override_id: str, _: None = Depends(require_admin)):
-    deleted = store.delete_quota_override(override_id)
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Quota override not found")
-    return {"status": "deleted", "override_id": override_id}
+        raise HTTPException(status_code=404, detail="Budget not found")
+    return {"status": "deleted", "budget_id": budget_id}

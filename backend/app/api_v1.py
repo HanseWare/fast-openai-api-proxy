@@ -1,6 +1,6 @@
 import os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from routers.audio import router as audio_router
 from routers.completions import router as completions_router
@@ -21,6 +21,23 @@ class FOAP_API_V1(FastAPI):
 
 
 app = FOAP_API_V1()
+
+
+@app.websocket("/realtime")
+async def realtime_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        while True:
+            data = await websocket.receive_text()
+            # Provide a stub response or pass-through
+            await websocket.send_text('{"type":"error", "error":{"message":"FOAP Realtime proxy is a stub and not fully implemented yet."}}')
+            break
+    except WebSocketDisconnect:
+        pass
+    finally:
+        if websocket.client_state.value == 1:
+            await websocket.close()
+
 
 # Include fallback router last so specific routes always win.
 app.include_router(completions_router)

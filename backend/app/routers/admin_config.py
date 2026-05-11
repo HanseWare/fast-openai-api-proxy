@@ -9,7 +9,6 @@ from models_handler import handler as models_handler
 from schemas.config import (
     ProviderCreate, ProviderRead, ProviderUpdate,
     ProviderModelCreate, ProviderModelUpdate, ProviderModelRead,
-    ProviderModelEndpointCreate, ProviderModelEndpointUpdate, ProviderModelEndpointRead,
     ModelAliasCreate, ModelAliasUpdate, ModelAliasRead
 )
 
@@ -31,9 +30,12 @@ async def create_provider(payload: ProviderCreate, _: None = Depends(require_adm
             name=payload.name,
             api_key_variable=payload.api_key_variable,
             prefix=payload.prefix,
-            default_base_url=payload.default_base_url,
-            default_request_timeout=payload.default_request_timeout,
-            default_health_timeout=payload.default_health_timeout
+            base_url=payload.base_url,
+            request_timeout=payload.request_timeout,
+            health_timeout=payload.health_timeout,
+            max_upstream_retry_seconds=payload.max_upstream_retry_seconds,
+            sync_provider_ratelimits=payload.sync_provider_ratelimits,
+            route_fallbacks=payload.route_fallbacks
         )
         models_handler.refresh()
         return provider
@@ -48,11 +50,11 @@ async def update_provider(provider_id: str, payload: ProviderUpdate, _: None = D
             name=payload.name,
             api_key_variable=payload.api_key_variable,
             prefix=payload.prefix,
-            default_base_url=payload.default_base_url,
-            default_request_timeout=payload.default_request_timeout,
-            default_health_timeout=payload.default_health_timeout,
-            sync_provider_ratelimits=payload.sync_provider_ratelimits,
+            base_url=payload.base_url,
+            request_timeout=payload.request_timeout,
+            health_timeout=payload.health_timeout,
             max_upstream_retry_seconds=payload.max_upstream_retry_seconds,
+            sync_provider_ratelimits=payload.sync_provider_ratelimits,
             route_fallbacks=payload.route_fallbacks
         )
         if not updated:
@@ -89,6 +91,13 @@ async def create_model(payload: ProviderModelCreate, _: None = Depends(require_a
         model = config_store.create_model(
             provider_id=payload.provider_id,
             name=payload.name,
+            type=payload.type,
+            target_model_name=payload.target_model_name,
+            target_base_url=payload.target_base_url,
+            fallback_model_name=payload.fallback_model_name,
+            supported_endpoints=payload.supported_endpoints,
+            price_per_unit=payload.price_per_unit,
+            min_credits_per_request=payload.min_credits_per_request,
             owned_by=payload.owned_by or 'FOAP',
             hide_on_models_endpoint=payload.hide_on_models_endpoint or False
         )
@@ -110,6 +119,13 @@ async def update_model(model_id: str, payload: ProviderModelUpdate, _: None = De
         updated = config_store.update_model(
             model_id=model_id,
             name=payload.name,
+            type=payload.type,
+            target_model_name=payload.target_model_name,
+            target_base_url=payload.target_base_url,
+            fallback_model_name=payload.fallback_model_name,
+            supported_endpoints=payload.supported_endpoints,
+            price_per_unit=payload.price_per_unit,
+            min_credits_per_request=payload.min_credits_per_request,
             owned_by=payload.owned_by,
             hide_on_models_endpoint=payload.hide_on_models_endpoint
         )
@@ -119,55 +135,6 @@ async def update_model(model_id: str, payload: ProviderModelUpdate, _: None = De
         return updated
     except sqlite3.IntegrityError:
         raise HTTPException(status_code=409, detail="Model name already exists for this provider")
-
-# ---------------- Endpoints ----------------
-
-@router.get("/models/{model_id}/endpoints", response_model=List[ProviderModelEndpointRead])
-async def list_endpoints(model_id: str, _: None = Depends(require_admin)):
-    return config_store.list_endpoints_for_model(model_id)
-
-@router.post("/endpoints", response_model=ProviderModelEndpointRead)
-async def create_endpoint(payload: ProviderModelEndpointCreate, _: None = Depends(require_admin)):
-    try:
-        ep = config_store.create_endpoint(
-            model_id=payload.model_id,
-            path=payload.path,
-            target_model_name=payload.target_model_name,
-            target_base_url=payload.target_base_url,
-            request_timeout=payload.request_timeout,
-            health_timeout=payload.health_timeout,
-            fallback_model_name=payload.fallback_model_name
-        )
-        models_handler.refresh()
-        return ep
-    except sqlite3.IntegrityError:
-        raise HTTPException(status_code=409, detail="Endpoint path already exists for this model")
-
-@router.delete("/endpoints/{endpoint_id}")
-async def delete_endpoint(endpoint_id: str, _: None = Depends(require_admin)):
-    if not config_store.delete_endpoint(endpoint_id):
-        raise HTTPException(status_code=404, detail="Endpoint not found")
-    models_handler.refresh()
-    return {"status": "deleted"}
-
-@router.put("/endpoints/{endpoint_id}", response_model=ProviderModelEndpointRead)
-async def update_endpoint(endpoint_id: str, payload: ProviderModelEndpointUpdate, _: None = Depends(require_admin)):
-    try:
-        updated = config_store.update_endpoint(
-            endpoint_id,
-            path=payload.path,
-            target_model_name=payload.target_model_name,
-            target_base_url=payload.target_base_url,
-            request_timeout=payload.request_timeout,
-            health_timeout=payload.health_timeout,
-            fallback_model_name=payload.fallback_model_name
-        )
-        if not updated:
-            raise HTTPException(status_code=404, detail="Endpoint not found")
-        models_handler.refresh()
-        return updated
-    except sqlite3.IntegrityError:
-        raise HTTPException(status_code=409, detail="Endpoint path already exists for this model")
 
 # ---------------- Aliases (Virtual Models) ----------------
 
@@ -217,7 +184,7 @@ async def delete_alias(alias_id: str, _: None = Depends(require_admin)):
 
 @router.post("/import")
 async def import_config(payload: ImportPayload, _: None = Depends(require_admin)):
-    stats = {"providers": 0, "models": 0, "endpoints": 0}
+    stats = {"providers": 0, "models": 0}
     for provider_name, provider_config in payload.config_json.items():
         p = config_store.get_provider_by_name(provider_name)
         if not p:
@@ -225,9 +192,9 @@ async def import_config(payload: ImportPayload, _: None = Depends(require_admin)
                 name=provider_name,
                 api_key_variable=provider_config.get("api_key_variable", None),
                 prefix=provider_config.get("prefix", ""),
-                default_base_url=provider_config.get("target_base_url"),
-                default_request_timeout=provider_config.get("request_timeout"),
-                default_health_timeout=provider_config.get("health_timeout"),
+                base_url=provider_config.get("base_url") or provider_config.get("default_base_url"),
+                request_timeout=provider_config.get("request_timeout") or provider_config.get("default_request_timeout"),
+                health_timeout=provider_config.get("health_timeout") or provider_config.get("default_health_timeout"),
                 max_upstream_retry_seconds=provider_config.get("max_upstream_retry_seconds", 0),
                 sync_provider_ratelimits=provider_config.get("sync_provider_ratelimits", False)
             )
@@ -237,24 +204,39 @@ async def import_config(payload: ImportPayload, _: None = Depends(require_admin)
         for model_name, model_info in models.items():
             m = config_store.get_model_by_name(p["id"], model_name)
             if not m:
-                m = config_store.create_model(p["id"], model_name)
-                stats["models"] += 1
+                # Handle old schema import mapping (endpoints list to supported_endpoints array)
+                legacy_endpoints = model_info.get("endpoints", [])
+                supported_endpoints = model_info.get("supported_endpoints", [])
+                target_model_name = model_info.get("target_model_name")
+                target_base_url = model_info.get("target_base_url")
+                fallback_model_name = model_info.get("fallback_model_name")
                 
-            endpoints = model_info.get("endpoints", [])
-            for ep in endpoints:
-                e = config_store.get_endpoint_by_path(m["id"], ep["path"])
-                if not e:
-                    config_store.create_endpoint(
-                        model_id=m["id"],
-                        path=ep["path"],
-                        target_model_name=ep["target_model_name"],
-                        target_base_url=ep.get("target_base_url"),
-                        request_timeout=ep.get("request_timeout"),
-                        health_timeout=ep.get("health_timeout"),
-                        fallback_model_name=ep.get("fallback_model_name")
-                    )
-                    stats["endpoints"] += 1
+                if legacy_endpoints and not supported_endpoints:
+                    supported_endpoints = [ep["path"] for ep in legacy_endpoints]
+                    if not target_model_name:
+                        target_model_name = legacy_endpoints[0].get("target_model_name", model_name)
+                    if not target_base_url:
+                        target_base_url = legacy_endpoints[0].get("target_base_url")
+                    if not fallback_model_name:
+                        fallback_model_name = legacy_endpoints[0].get("fallback_model_name")
+
+                if not target_model_name:
+                    target_model_name = model_name
+
+                m = config_store.create_model(
+                    provider_id=p["id"],
+                    name=model_name,
+                    type=model_info.get("type", "llm"),
+                    target_model_name=target_model_name,
+                    target_base_url=target_base_url,
+                    fallback_model_name=fallback_model_name,
+                    supported_endpoints=supported_endpoints,
+                    price_per_unit=model_info.get("price_per_unit", 0.0),
+                    min_credits_per_request=model_info.get("min_credits_per_request", 0.0),
+                    owned_by=model_info.get("owned_by", "FOAP"),
+                    hide_on_models_endpoint=model_info.get("hide_on_models_endpoint", False)
+                )
+                stats["models"] += 1
     
     models_handler.refresh()
     return {"status": "success", "imported": stats}
-

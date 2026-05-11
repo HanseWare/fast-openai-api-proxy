@@ -25,9 +25,9 @@ class ConfigStore:
                     name TEXT NOT NULL UNIQUE,
                     api_key_variable TEXT,
                     prefix TEXT NOT NULL DEFAULT '',
-                    default_base_url TEXT,
-                    default_request_timeout INTEGER,
-                    default_health_timeout INTEGER,
+                    base_url TEXT,
+                    request_timeout INTEGER,
+                    health_timeout INTEGER,
                     max_upstream_retry_seconds INTEGER DEFAULT 0,
                     sync_provider_ratelimits BOOLEAN DEFAULT 0,
                     route_fallbacks TEXT DEFAULT '{}',
@@ -38,23 +38,17 @@ class ConfigStore:
                     id TEXT PRIMARY KEY,
                     provider_id TEXT NOT NULL,
                     name TEXT NOT NULL,
+                    type TEXT NOT NULL DEFAULT 'llm',
+                    target_model_name TEXT NOT NULL,
+                    target_base_url TEXT,
+                    fallback_model_name TEXT,
+                    supported_endpoints TEXT DEFAULT '[]',
+                    price_per_unit REAL DEFAULT 0.0,
+                    min_credits_per_request REAL DEFAULT 0.0,
                     owned_by TEXT DEFAULT 'FOAP',
                     hide_on_models_endpoint BOOLEAN DEFAULT 0,
                     FOREIGN KEY(provider_id) REFERENCES providers(id),
                     UNIQUE(provider_id, name)
-                );
-
-                CREATE TABLE IF NOT EXISTS provider_model_endpoints (
-                    id TEXT PRIMARY KEY,
-                    model_id TEXT NOT NULL,
-                    path TEXT NOT NULL,
-                    target_model_name TEXT NOT NULL,
-                    target_base_url TEXT,
-                    request_timeout INTEGER,
-                    health_timeout INTEGER,
-                    fallback_model_name TEXT,
-                    FOREIGN KEY(model_id) REFERENCES provider_models(id),
-                    UNIQUE(model_id, path)
                 );
 
                 CREATE TABLE IF NOT EXISTS model_aliases (
@@ -124,9 +118,9 @@ class ConfigStore:
         return d
 
     def create_provider(self, name: str, api_key_variable: Optional[str] = None, prefix: str = '',
-                        default_base_url: Optional[str] = None,
-                        default_request_timeout: Optional[int] = None,
-                        default_health_timeout: Optional[int] = None,
+                        base_url: Optional[str] = None,
+                        request_timeout: Optional[int] = None,
+                        health_timeout: Optional[int] = None,
                         max_upstream_retry_seconds: int = 0,
                         sync_provider_ratelimits: bool = False,
                         route_fallbacks: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
@@ -135,23 +129,21 @@ class ConfigStore:
         import json
         rf_str = json.dumps(route_fallbacks) if route_fallbacks else '{}'
         
-        # Ensure api_key_variable is never NULL in the DB, to prevent IntegrityError
-        # on older schemas where it might have been NOT NULL.
         safe_api_key_var = api_key_variable if api_key_variable is not None else ""
 
         with self._lock:
             with self._connect() as conn:
                 conn.execute(
                     """
-                    INSERT INTO providers (id, name, api_key_variable, prefix, default_base_url, default_request_timeout, default_health_timeout, max_upstream_retry_seconds, sync_provider_ratelimits, route_fallbacks, created_at)
+                    INSERT INTO providers (id, name, api_key_variable, prefix, base_url, request_timeout, health_timeout, max_upstream_retry_seconds, sync_provider_ratelimits, route_fallbacks, created_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (provider_id, name, safe_api_key_var, prefix, default_base_url, default_request_timeout, default_health_timeout, max_upstream_retry_seconds, int(sync_provider_ratelimits), rf_str, now)
+                    (provider_id, name, safe_api_key_var, prefix, base_url, request_timeout, health_timeout, max_upstream_retry_seconds, int(sync_provider_ratelimits), rf_str, now)
                 )
         return self.get_provider(provider_id)
 
     def update_provider(self, provider_id: str, name: str, api_key_variable: Optional[str], prefix: str,
-                        default_base_url: Optional[str], default_request_timeout: Optional[int], default_health_timeout: Optional[int],
+                        base_url: Optional[str], request_timeout: Optional[int], health_timeout: Optional[int],
                         max_upstream_retry_seconds: int = 0, sync_provider_ratelimits: bool = False,
                         route_fallbacks: Optional[Dict[str, str]] = None) -> Optional[Dict[str, Any]]:
         import json
@@ -163,10 +155,10 @@ class ConfigStore:
             with self._connect() as conn:
                 cursor = conn.execute(
                     """
-                    UPDATE providers SET name=?, api_key_variable=?, prefix=?, default_base_url=?, default_request_timeout=?, default_health_timeout=?, max_upstream_retry_seconds=?, sync_provider_ratelimits=?, route_fallbacks=?
+                    UPDATE providers SET name=?, api_key_variable=?, prefix=?, base_url=?, request_timeout=?, health_timeout=?, max_upstream_retry_seconds=?, sync_provider_ratelimits=?, route_fallbacks=?
                     WHERE id=?
                     """,
-                    (name, safe_api_key_var, prefix, default_base_url, default_request_timeout, default_health_timeout, max_upstream_retry_seconds, int(sync_provider_ratelimits), rf_str, provider_id)
+                    (name, safe_api_key_var, prefix, base_url, request_timeout, health_timeout, max_upstream_retry_seconds, int(sync_provider_ratelimits), rf_str, provider_id)
                 )
                 if cursor.rowcount == 0:
                     return None
@@ -175,10 +167,6 @@ class ConfigStore:
     def delete_provider(self, provider_id: str) -> bool:
         with self._lock:
             with self._connect() as conn:
-                # Get models to delete their endpoints
-                models = conn.execute("SELECT id FROM provider_models WHERE provider_id = ?", (provider_id,)).fetchall()
-                for model in models:
-                    conn.execute("DELETE FROM provider_model_endpoints WHERE model_id = ?", (model['id'],))
                 conn.execute("DELETE FROM provider_models WHERE provider_id = ?", (provider_id,))
                 cursor = conn.execute("DELETE FROM providers WHERE id = ?", (provider_id,))
                 return cursor.rowcount > 0
@@ -188,94 +176,90 @@ class ConfigStore:
     def list_models_for_provider(self, provider_id: str) -> List[Dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute("SELECT * FROM provider_models WHERE provider_id = ? ORDER BY name", (provider_id,)).fetchall()
-        return [dict(row) for row in rows]
+        
+        result = []
+        for row in rows:
+            d = dict(row)
+            if 'supported_endpoints' in d and isinstance(d['supported_endpoints'], str):
+                import json
+                try:
+                    d['supported_endpoints'] = json.loads(d['supported_endpoints'])
+                except:
+                    d['supported_endpoints'] = []
+            result.append(d)
+        return result
 
     def get_model_by_name(self, provider_id: str, name: str) -> Optional[Dict[str, Any]]:
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM provider_models WHERE provider_id = ? AND name = ?", (provider_id, name)).fetchone()
-        return dict(row) if row else None
+        if not row: return None
+        d = dict(row)
+        if 'supported_endpoints' in d and isinstance(d['supported_endpoints'], str):
+            import json
+            try:
+                d['supported_endpoints'] = json.loads(d['supported_endpoints'])
+            except:
+                d['supported_endpoints'] = []
+        return d
 
-    def create_model(self, provider_id: str, name: str, owned_by: str = 'FOAP', hide_on_models_endpoint: bool = False) -> Dict[str, Any]:
+    def get_model(self, model_id: str) -> Optional[Dict[str, Any]]:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM provider_models WHERE id = ?", (model_id,)).fetchone()
+        if not row: return None
+        d = dict(row)
+        if 'supported_endpoints' in d and isinstance(d['supported_endpoints'], str):
+            import json
+            try:
+                d['supported_endpoints'] = json.loads(d['supported_endpoints'])
+            except:
+                d['supported_endpoints'] = []
+        return d
+
+    def create_model(self, provider_id: str, name: str, type: str, target_model_name: str,
+                     target_base_url: Optional[str] = None, fallback_model_name: Optional[str] = None,
+                     supported_endpoints: Optional[List[str]] = None, price_per_unit: float = 0.0,
+                     min_credits_per_request: float = 0.0, owned_by: str = 'FOAP', hide_on_models_endpoint: bool = False) -> Dict[str, Any]:
         model_id = str(uuid.uuid4())
+        import json
+        endpoints_str = json.dumps(supported_endpoints) if supported_endpoints else '[]'
+
         with self._lock:
             with self._connect() as conn:
                 conn.execute(
-                    "INSERT INTO provider_models (id, provider_id, name, owned_by, hide_on_models_endpoint) VALUES (?, ?, ?, ?, ?)",
-                    (model_id, provider_id, name, owned_by or 'FOAP', int(hide_on_models_endpoint))
+                    """
+                    INSERT INTO provider_models (id, provider_id, name, type, target_model_name, target_base_url, fallback_model_name, supported_endpoints, price_per_unit, min_credits_per_request, owned_by, hide_on_models_endpoint)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (model_id, provider_id, name, type, target_model_name, target_base_url, fallback_model_name, endpoints_str, price_per_unit, min_credits_per_request, owned_by or 'FOAP', int(hide_on_models_endpoint))
                 )
-        with self._connect() as conn:
-            row = conn.execute("SELECT * FROM provider_models WHERE id = ?", (model_id,)).fetchone()
-        return dict(row)
+        return self.get_model(model_id)
 
-    def update_model(self, model_id: str, name: str, owned_by: Optional[str] = None, hide_on_models_endpoint: Optional[bool] = None) -> Optional[Dict[str, Any]]:
+    def update_model(self, model_id: str, name: str, type: str, target_model_name: str,
+                     target_base_url: Optional[str] = None, fallback_model_name: Optional[str] = None,
+                     supported_endpoints: Optional[List[str]] = None, price_per_unit: float = 0.0,
+                     min_credits_per_request: float = 0.0,
+                     owned_by: Optional[str] = None, hide_on_models_endpoint: Optional[bool] = None) -> Optional[Dict[str, Any]]:
+        import json
+        endpoints_str = json.dumps(supported_endpoints) if supported_endpoints else '[]'
+
         with self._lock:
             with self._connect() as conn:
                 cursor = conn.execute(
-                    "UPDATE provider_models SET name = ?, owned_by = COALESCE(?, owned_by), hide_on_models_endpoint = COALESCE(?, hide_on_models_endpoint) WHERE id = ?",
-                    (name, owned_by, int(hide_on_models_endpoint) if hide_on_models_endpoint is not None else None, model_id)
+                    """
+                    UPDATE provider_models SET name = ?, type = ?, target_model_name = ?, target_base_url = ?, fallback_model_name = ?,
+                    supported_endpoints = ?, price_per_unit = ?, min_credits_per_request = ?, owned_by = COALESCE(?, owned_by),
+                    hide_on_models_endpoint = COALESCE(?, hide_on_models_endpoint) WHERE id = ?
+                    """,
+                    (name, type, target_model_name, target_base_url, fallback_model_name, endpoints_str, price_per_unit, min_credits_per_request, owned_by, int(hide_on_models_endpoint) if hide_on_models_endpoint is not None else None, model_id)
                 )
                 if cursor.rowcount == 0:
                     return None
-        with self._connect() as conn:
-            row = conn.execute("SELECT * FROM provider_models WHERE id = ?", (model_id,)).fetchone()
-        return dict(row)
+        return self.get_model(model_id)
 
     def delete_model(self, model_id: str) -> bool:
         with self._lock:
             with self._connect() as conn:
-                conn.execute("DELETE FROM provider_model_endpoints WHERE model_id = ?", (model_id,))
                 cursor = conn.execute("DELETE FROM provider_models WHERE id = ?", (model_id,))
-                return cursor.rowcount > 0
-
-    # ---------------- Endpoints ----------------
-
-    def list_endpoints_for_model(self, model_id: str) -> List[Dict[str, Any]]:
-        with self._connect() as conn:
-            rows = conn.execute("SELECT * FROM provider_model_endpoints WHERE model_id = ? ORDER BY path", (model_id,)).fetchall()
-        return [dict(row) for row in rows]
-
-    def get_endpoint_by_path(self, model_id: str, path: str) -> Optional[Dict[str, Any]]:
-        with self._connect() as conn:
-            row = conn.execute("SELECT * FROM provider_model_endpoints WHERE model_id = ? AND path = ?", (model_id, path)).fetchone()
-        return dict(row) if row else None
-
-    def create_endpoint(self, model_id: str, path: str, target_model_name: str, 
-                        target_base_url: Optional[str] = None, request_timeout: Optional[int] = None, health_timeout: Optional[int] = None, fallback_model_name: Optional[str] = None) -> Dict[str, Any]:
-        endpoint_id = str(uuid.uuid4())
-        with self._lock:
-            with self._connect() as conn:
-                conn.execute(
-                    """
-                    INSERT INTO provider_model_endpoints (id, model_id, path, target_model_name, target_base_url, request_timeout, health_timeout, fallback_model_name)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (endpoint_id, model_id, path, target_model_name, target_base_url, request_timeout, health_timeout, fallback_model_name)
-                )
-        with self._connect() as conn:
-            row = conn.execute("SELECT * FROM provider_model_endpoints WHERE id = ?", (endpoint_id,)).fetchone()
-        return dict(row)
-
-    def update_endpoint(self, endpoint_id: str, path: str, target_model_name: str, 
-                        target_base_url: Optional[str] = None, request_timeout: Optional[int] = None, health_timeout: Optional[int] = None, fallback_model_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
-        with self._lock:
-            with self._connect() as conn:
-                cursor = conn.execute(
-                    """
-                    UPDATE provider_model_endpoints SET path=?, target_model_name=?, target_base_url=?, request_timeout=?, health_timeout=?, fallback_model_name=?
-                    WHERE id=?
-                    """,
-                    (path, target_model_name, target_base_url, request_timeout, health_timeout, fallback_model_name, endpoint_id)
-                )
-                if cursor.rowcount == 0:
-                    return None
-        with self._connect() as conn:
-            row = conn.execute("SELECT * FROM provider_model_endpoints WHERE id = ?", (endpoint_id,)).fetchone()
-        return dict(row)
-
-    def delete_endpoint(self, endpoint_id: str) -> bool:
-        with self._lock:
-            with self._connect() as conn:
-                cursor = conn.execute("DELETE FROM provider_model_endpoints WHERE id = ?", (endpoint_id,))
                 return cursor.rowcount > 0
 
     # ---------------- Aliases ----------------

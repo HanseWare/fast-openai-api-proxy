@@ -29,7 +29,7 @@
           </div>
           <div class="input-group">
             <label>Default Base URL</label>
-            <input v-model="newProvider.default_base_url" placeholder="https://api.openai.com" />
+            <input v-model="newProvider.base_url" placeholder="https://api.openai.com" />
           </div>
           <div class="input-group">
             <label>Max Upstream Retry (sec)</label>
@@ -53,7 +53,7 @@
       <div class="provider-header">
         <div>
           <h3>{{ p.name }}</h3>
-          <p class="meta">Var: <code>{{ p.api_key_variable }}</code> | Default URL: <code>{{ p.default_base_url || 'N/A' }}</code></p>
+          <p class="meta">Var: <code>{{ p.api_key_variable }}</code> | Default URL: <code>{{ p.base_url || 'N/A' }}</code></p>
           <p class="meta">Retry: {{ p.max_upstream_retry_seconds || 0 }}s | Sync Limits: {{ p.sync_provider_ratelimits ? 'Yes' : 'No' }}</p>
         </div>
         <div style="display: flex; gap: 0.5rem;">
@@ -66,16 +66,17 @@
       <div class="models-section">
         <div class="models-header">
           <h4>Models</h4>
-          <button @click="addModel(p.id)" class="btn-text">+ Add Model</button>
+          <button @click="openAddModel(p.id)" class="btn-text">+ Add Model</button>
         </div>
         
         <table v-if="p.models && p.models.length > 0">
           <thead>
             <tr>
               <th>Model Name</th>
-              <th>Owned By</th>
-              <th>Hidden</th>
+              <th>Type</th>
+              <th>Target Model / URL</th>
               <th>Endpoints</th>
+              <th>Economics</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -83,21 +84,25 @@
             <tr v-for="m in p.models" :key="m.id">
               <td class="mono">
                 {{ m.name }}
+                <div v-if="m.hide_on_models_endpoint" style="font-size:0.75rem; color:var(--color-danger);">Hidden</div>
               </td>
-              <td>{{ m.owned_by || 'FOAP' }}</td>
-              <td>{{ m.hide_on_models_endpoint ? '🚫' : '—' }}</td>
+              <td><span class="status-pill status-pill--neutral">{{ m.type }}</span></td>
               <td>
-                <div v-for="ep in m.endpoints" :key="ep.id" class="endpoint-row" @click="openEditEndpoint(ep, m.id)" title="Click to edit">
-                  <span class="ep-path">{{ ep.path }}</span>
-                  <span class="ep-arrow">&rarr;</span>
-                  <span class="ep-target">{{ ep.target_model_name }}</span>
-                  <span class="ep-meta" v-if="ep.fallback_model_name"> | fallback: {{ep.fallback_model_name}}</span>
-                  <span class="ep-meta" v-if="ep.target_base_url"> | url: {{ep.target_base_url}}</span>
+                <div>{{ m.target_model_name }}</div>
+                <div v-if="m.target_base_url" class="text-muted" style="font-size:0.8rem">{{ m.target_base_url }}</div>
+              </td>
+              <td>
+                <div v-if="m.supported_endpoints && m.supported_endpoints.length">
+                  <span v-for="ep in m.supported_endpoints" :key="ep" class="badge">{{ ep }}</span>
                 </div>
-                <button @click="addEndpoint(m.id)" class="btn-text" style="font-size: 0.8rem; margin-top: 0.5rem">+ Add Endpoint</button>
+                <span v-else class="text-muted">None</span>
+              </td>
+              <td style="font-size: 0.85rem">
+                <div>Price/Unit: {{ m.price_per_unit || 0 }}</div>
+                <div>Min Credits: {{ m.min_credits_per_request || 0 }}</div>
               </td>
               <td>
-                <button @click="openEditModel(m)" class="btn-icon" title="Edit Model">✏️</button>
+                <button @click="openEditModel(m, p.id)" class="btn-icon" title="Edit Model">✏️</button>
                 <button @click="deleteModel(m.id)" class="btn-icon delete" title="Delete Model">🗑️</button>
               </td>
             </tr>
@@ -126,7 +131,7 @@
           </div>
           <div class="input-group" style="margin-bottom: 1rem;">
             <label>Default Base URL</label>
-            <input v-model="editProviderForm.default_base_url" />
+            <input v-model="editProviderForm.base_url" />
           </div>
           <div class="input-group" style="margin-bottom: 1rem;">
             <label>Max Upstream Retry (sec)</label>
@@ -151,72 +156,70 @@
     <div v-if="providers.length === 0" class="empty-state">
       No providers configured in the database. The proxy is currently running in JSON fallback mode.
     </div>
-    <!-- Edit Model Modal -->
+
+    <!-- Add/Edit Model Modal -->
     <div v-if="modelForm.show" class="modal-overlay">
-      <div class="glass-panel modal-content">
-        <h3>Edit Model</h3>
-        <form @submit.prevent="submitEditModel">
+      <div class="glass-panel modal-content" style="max-height: 90vh; overflow-y: auto;">
+        <h3>{{ modelForm.id ? 'Edit Model' : 'Add Model' }}</h3>
+        <form @submit.prevent="submitModelForm">
           <div class="input-group" style="margin-bottom: 1rem;">
-            <label>Model Name</label>
-            <input v-model="modelForm.name" required />
+            <label>Name</label>
+            <input v-model="modelForm.name" required placeholder="gpt-4o" />
           </div>
+          
+          <div class="inline-form" style="margin-bottom: 1rem;">
+            <div class="input-group">
+              <label>Target Model Name</label>
+              <input v-model="modelForm.target_model_name" required placeholder="gpt-4o" />
+            </div>
+            <div class="input-group">
+              <label>Model Type</label>
+              <select v-model="modelForm.type" @change="onModelTypeChange" required>
+                <option value="llm">LLM</option>
+                <option value="embedding">Embedding</option>
+                <option value="image">Image</option>
+                <option value="audio_transcription">Audio Transcription</option>
+                <option value="audio_speech">Audio Speech</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="input-group" style="margin-bottom: 1rem;">
+            <label>Supported Endpoints (Hold Ctrl/Cmd to select multiple)</label>
+            <select v-model="modelForm.supported_endpoints" multiple size="4" required class="multiselect">
+              <option v-for="ep in availableEndpoints" :key="ep" :value="ep">{{ ep }}</option>
+            </select>
+          </div>
+
+          <div class="input-group" style="margin-bottom: 1rem;">
+            <label>Target Base URL (Override Provider URL)</label>
+            <input v-model="modelForm.target_base_url" placeholder="https://api.openai.com" />
+          </div>
+
+          <div class="inline-form" style="margin-bottom: 1rem;">
+            <div class="input-group">
+              <label>Price Per Unit</label>
+              <input type="number" step="0.0000001" v-model.number="modelForm.price_per_unit" />
+            </div>
+            <div class="input-group">
+              <label>Min Credits / Request</label>
+              <input type="number" step="0.0001" v-model.number="modelForm.min_credits_per_request" />
+            </div>
+          </div>
+
           <div class="input-group" style="margin-bottom: 1rem;">
             <label>Owned By</label>
             <input v-model="modelForm.owned_by" placeholder="FOAP" />
           </div>
+
           <div class="input-group" style="flex-direction: row; align-items: center; gap: 0.5rem; margin-bottom: 1.5rem;">
             <input type="checkbox" v-model="modelForm.hide_on_models_endpoint" id="edit_model_hide" />
             <label for="edit_model_hide" style="margin: 0;">Hide on /v1/models</label>
           </div>
+
           <div style="display: flex; gap: 1rem; justify-content: flex-end;">
             <button type="button" class="btn-secondary" @click="modelForm.show = false">Cancel</button>
-            <button type="submit" class="btn-primary" :disabled="creating">Update</button>
-          </div>
-        </form>
-      </div>
-    </div>
-
-    <!-- Add/Edit Endpoint Modal (Overlay) -->
-    <div v-if="endpointForm.show" class="modal-overlay">
-      <div class="glass-panel modal-content">
-        <h3>{{ endpointForm.editMode ? 'Edit Endpoint' : 'Add Endpoint' }}</h3>
-        <form @submit.prevent="submitEndpoint">
-          <div class="input-group" style="margin-bottom: 1rem;">
-            <label>Endpoint Path</label>
-            <input list="common-paths" v-model="endpointForm.path" required placeholder="v1/chat/completions" />
-            <datalist id="common-paths">
-              <option value="v1/chat/completions"></option>
-              <option value="v1/completions"></option>
-              <option value="v1/embeddings"></option>
-              <option value="v1/models"></option>
-            </datalist>
-          </div>
-          <div class="input-group" style="margin-bottom: 1rem;">
-            <label>Target Model Name</label>
-            <input v-model="endpointForm.target_model_name" required placeholder="gpt-4o" />
-          </div>
-          <div class="input-group" style="margin-bottom: 1rem;">
-            <label>Target Base URL (Overrides Provider)</label>
-            <input v-model="endpointForm.target_base_url" placeholder="https://api.openai.com" />
-          </div>
-          <div class="inline-form" style="margin-bottom: 1.5rem;">
-            <div class="input-group">
-              <label>Req Timeout (s)</label>
-              <input type="number" v-model="endpointForm.request_timeout" placeholder="60" />
-            </div>
-            <div class="input-group">
-              <label>Health Timeout (s)</label>
-              <input type="number" v-model="endpointForm.health_timeout" placeholder="60" />
-            </div>
-          </div>
-          <div class="input-group" style="margin-bottom: 1.5rem;">
-            <label>Fallback Model Name (Optional)</label>
-            <input v-model="endpointForm.fallback_model_name" placeholder="gpt-4o-mini" />
-          </div>
-          <div style="display: flex; gap: 1rem; justify-content: flex-end;">
-            <button v-if="endpointForm.editMode" type="button" class="btn-icon delete" style="margin-right: auto;" @click="deleteEndpoint(endpointForm.id)">🗑️ Delete</button>
-            <button type="button" class="btn-secondary" @click="endpointForm.show = false">Cancel</button>
-            <button type="submit" class="btn-primary" :disabled="creating">{{ endpointForm.editMode ? 'Update' : 'Add' }}</button>
+            <button type="submit" class="btn-primary" :disabled="creating">{{ modelForm.id ? 'Update' : 'Add' }}</button>
           </div>
         </form>
       </div>
@@ -225,26 +228,52 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { fetchApi } from '../api'
 
 const providers = ref([])
 const showCreateProvider = ref(false)
 const creating = ref(false)
 
-const newProvider = ref({ name: '', api_key_variable: '', prefix: '', default_base_url: '', max_upstream_retry_seconds: 0, sync_provider_ratelimits: false, route_fallbacks_str: '{}' })
-const endpointForm = ref({ show: false, editMode: false, id: null, modelId: null, path: '', target_model_name: '', fallback_model_name: '', target_base_url: '', request_timeout: null, health_timeout: null })
-const editProviderForm = ref({ show: false, id: null, name: '', api_key_variable: '', prefix: '', default_base_url: '', max_upstream_retry_seconds: 0, sync_provider_ratelimits: false, route_fallbacks_str: '{}' })
-const modelForm = ref({ show: false, id: null, name: '', owned_by: 'FOAP', hide_on_models_endpoint: false })
+const newProvider = ref({ name: '', api_key_variable: '', prefix: '', base_url: '', max_upstream_retry_seconds: 0, sync_provider_ratelimits: false, route_fallbacks_str: '{}' })
+const editProviderForm = ref({ show: false, id: null, name: '', api_key_variable: '', prefix: '', base_url: '', max_upstream_retry_seconds: 0, sync_provider_ratelimits: false, route_fallbacks_str: '{}' })
+
+const endpointMap = {
+  llm: ['/v1/chat/completions', '/v1/completions', '/v1/models'],
+  embedding: ['/v1/embeddings', '/v1/models'],
+  image: ['/v1/images/generations', '/v1/images/edits', '/v1/images/variations'],
+  audio_transcription: ['/v1/audio/transcriptions', '/v1/audio/translations'],
+  audio_speech: ['/v1/audio/speech']
+}
+
+const modelForm = ref({ 
+  show: false, 
+  id: null, 
+  provider_id: null,
+  name: '', 
+  type: 'llm',
+  target_model_name: '',
+  target_base_url: '',
+  supported_endpoints: [],
+  price_per_unit: 0.0,
+  min_credits_per_request: 0.0,
+  owned_by: 'FOAP', 
+  hide_on_models_endpoint: false 
+})
+
+const availableEndpoints = computed(() => {
+  return endpointMap[modelForm.value.type] || []
+})
+
+function onModelTypeChange() {
+  modelForm.value.supported_endpoints = []
+}
 
 async function loadData() {
   try {
     const provs = await fetchApi('/config/providers')
     for (let p of provs) {
       p.models = await fetchApi(`/config/providers/${p.id}/models`)
-      for (let m of p.models) {
-        m.endpoints = await fetchApi(`/config/models/${m.id}/endpoints`)
-      }
     }
     providers.value = provs
   } catch (e) {
@@ -259,6 +288,7 @@ async function createProvider() {
       method: 'POST',
       body: JSON.stringify({
         ...newProvider.value,
+        base_url: newProvider.value.base_url || null,
         route_fallbacks: JSON.parse(newProvider.value.route_fallbacks_str || '{}')
       })
     })
@@ -281,7 +311,7 @@ function openEditProvider(p) {
     name: p.name,
     api_key_variable: p.api_key_variable,
     prefix: p.prefix,
-    default_base_url: p.default_base_url,
+    base_url: p.base_url,
     max_upstream_retry_seconds: p.max_upstream_retry_seconds || 0,
     sync_provider_ratelimits: p.sync_provider_ratelimits || false,
     route_fallbacks_str: p.route_fallbacks ? JSON.stringify(p.route_fallbacks) : '{}'
@@ -297,7 +327,7 @@ async function submitEditProvider() {
         name: editProviderForm.value.name,
         api_key_variable: editProviderForm.value.api_key_variable,
         prefix: editProviderForm.value.prefix,
-        default_base_url: editProviderForm.value.default_base_url,
+        base_url: editProviderForm.value.base_url || null,
         max_upstream_retry_seconds: editProviderForm.value.max_upstream_retry_seconds,
         sync_provider_ratelimits: editProviderForm.value.sync_provider_ratelimits,
         route_fallbacks: JSON.parse(editProviderForm.value.route_fallbacks_str || '{}')
@@ -312,114 +342,80 @@ async function submitEditProvider() {
   }
 }
 
-async function addModel(providerId) {
-  const name = prompt("Enter new model name (e.g. gpt-4o):")
-  if (!name) return
-  await fetchApi('/config/models', {
-    method: 'POST',
-    body: JSON.stringify({ provider_id: providerId, name, owned_by: 'FOAP', hide_on_models_endpoint: false })
-  })
-  await loadData()
+function openAddModel(providerId) {
+  modelForm.value = {
+    show: true,
+    id: null,
+    provider_id: providerId,
+    name: '', 
+    type: 'llm',
+    target_model_name: '',
+    target_base_url: '',
+    supported_endpoints: ['/v1/chat/completions'],
+    price_per_unit: 0.0,
+    min_credits_per_request: 0.0,
+    owned_by: 'FOAP',
+    hide_on_models_endpoint: false
+  }
 }
 
-function openEditModel(model) {
+function openEditModel(model, providerId) {
   modelForm.value = {
     show: true,
     id: model.id,
+    provider_id: providerId,
     name: model.name,
+    type: model.type || 'llm',
+    target_model_name: model.target_model_name,
+    target_base_url: model.target_base_url || '',
+    supported_endpoints: model.supported_endpoints || [],
+    price_per_unit: model.price_per_unit || 0.0,
+    min_credits_per_request: model.min_credits_per_request || 0.0,
     owned_by: model.owned_by || 'FOAP',
     hide_on_models_endpoint: !!model.hide_on_models_endpoint
   }
 }
 
-async function submitEditModel() {
+async function submitModelForm() {
   creating.value = true
   try {
-    await fetchApi(`/config/models/${modelForm.value.id}`, {
-      method: 'PUT',
-      body: JSON.stringify({
-        name: modelForm.value.name,
-        owned_by: modelForm.value.owned_by,
-        hide_on_models_endpoint: modelForm.value.hide_on_models_endpoint
+    const payload = {
+      name: modelForm.value.name,
+      type: modelForm.value.type,
+      target_model_name: modelForm.value.target_model_name,
+      target_base_url: modelForm.value.target_base_url || null,
+      supported_endpoints: modelForm.value.supported_endpoints,
+      price_per_unit: modelForm.value.price_per_unit,
+      min_credits_per_request: modelForm.value.min_credits_per_request,
+      owned_by: modelForm.value.owned_by,
+      hide_on_models_endpoint: modelForm.value.hide_on_models_endpoint
+    }
+
+    if (modelForm.value.id) {
+      await fetchApi(`/config/models/${modelForm.value.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload)
       })
-    })
+    } else {
+      payload.provider_id = modelForm.value.provider_id
+      await fetchApi('/config/models', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      })
+    }
     modelForm.value.show = false
     await loadData()
   } catch (e) {
-    alert('Failed to update model: ' + e.message)
+    alert('Failed to save model: ' + e.message)
   } finally {
     creating.value = false
   }
 }
 
 async function deleteModel(id) {
-  if (!confirm('Delete model and ALL its endpoints?')) return
+  if (!confirm('Delete this model?')) return
   await fetchApi(`/config/models/${id}`, { method: 'DELETE' })
   await loadData()
-}
-
-async function addEndpoint(modelId) {
-  endpointForm.value = { show: true, editMode: false, id: null, modelId, path: 'v1/chat/completions', target_model_name: '', fallback_model_name: '' }
-}
-
-async function openEditEndpoint(ep, modelId) {
-  endpointForm.value = {
-    show: true,
-    editMode: true,
-    id: ep.id,
-    modelId,
-    path: ep.path,
-    target_model_name: ep.target_model_name,
-    fallback_model_name: ep.fallback_model_name || '',
-    target_base_url: ep.target_base_url || '',
-    request_timeout: ep.request_timeout || null,
-    health_timeout: ep.health_timeout || null
-  }
-}
-
-async function deleteEndpoint(id) {
-  if (!confirm('Delete endpoint?')) return
-  await fetchApi(`/config/endpoints/${id}`, { method: 'DELETE' })
-  endpointForm.value.show = false
-  await loadData()
-}
-
-async function submitEndpoint() {
-  creating.value = true
-  try {
-    if (endpointForm.value.editMode) {
-      await fetchApi(`/config/endpoints/${endpointForm.value.id}`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          path: endpointForm.value.path,
-          target_model_name: endpointForm.value.target_model_name,
-          fallback_model_name: endpointForm.value.fallback_model_name || null,
-          target_base_url: endpointForm.value.target_base_url || null,
-          request_timeout: endpointForm.value.request_timeout || null,
-          health_timeout: endpointForm.value.health_timeout || null
-        })
-      })
-    } else {
-      await fetchApi('/config/endpoints', {
-        method: 'POST',
-        body: JSON.stringify({
-          model_id: endpointForm.value.modelId,
-          path: endpointForm.value.path,
-          target_model_name: endpointForm.value.target_model_name,
-          fallback_model_name: endpointForm.value.fallback_model_name || null,
-          target_base_url: endpointForm.value.target_base_url || null,
-          request_timeout: endpointForm.value.request_timeout || null,
-          health_timeout: endpointForm.value.health_timeout || null
-        })
-      })
-    }
-    endpointForm.value.show = false
-    await loadData()
-  } catch (e) {
-    alert('Failed to save endpoint: ' + e.message)
-  } finally {
-    creating.value = false
-  }
 }
 
 onMounted(() => loadData())
@@ -429,7 +425,6 @@ onMounted(() => loadData())
 .view-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
 .view-header h2 { margin: 0; color: var(--color-text-primary); }
 .glass-panel {
-  /* Reduce 'glass' transparency so panels are more readable against dark backgrounds */
   background: rgba(12,14,16,0.96);
   border: 1px solid rgba(255,255,255,0.03);
   box-shadow: 0 6px 18px rgba(0,0,0,0.5);
@@ -437,9 +432,25 @@ onMounted(() => loadData())
 
 .form-panel { padding: 1.5rem; margin-bottom: 2rem; }
 .form-panel h3 { margin-top: 0; margin-bottom: 1rem; font-size: 1.1rem; }
-.inline-form { display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap; }
+.inline-form { display: flex; gap: 1rem; align-items: flex-start; flex-wrap: wrap; }
 .input-group { display: flex; flex-direction: column; gap: 0.5rem; flex: 1; min-width: 150px;}
 .input-group label { font-size: 0.85rem; color: var(--color-text-secondary); }
+
+.multiselect {
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--glass-border);
+  border-radius: 6px;
+  color: var(--color-text-primary);
+  padding: 0.5rem;
+}
+.multiselect option {
+  padding: 0.5rem;
+  border-radius: 4px;
+}
+.multiselect option:checked {
+  background: rgba(0, 229, 255, 0.2);
+  color: var(--color-teal-cyan);
+}
 
 .provider-card {
   margin-bottom: 2rem;
@@ -448,7 +459,6 @@ onMounted(() => loadData())
 
 .provider-header {
   padding: 1.5rem;
-  /* stronger, less transparent header so content underneath doesn't bleed through */
   background: rgba(0, 0, 0, 0.72);
   border-bottom: 1px solid var(--glass-border);
   display: flex;
@@ -501,47 +511,9 @@ tbody tr:hover { background: rgba(255, 255, 255, 0.02); }
 }
 .btn-text:hover { color: var(--color-berry-light); }
 
-.endpoint-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  padding: 0.4rem 0.6rem;
-  margin-bottom: 0.3rem;
-  /* make endpoint rows more opaque for readability */
-  background: rgba(0, 0, 0, 0.55);
-  border: 1px solid var(--glass-border);
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 0.2s;
-  font-size: 0.85rem;
-}
-.endpoint-row:hover {
-  background: rgba(0, 229, 255, 0.06);
-  border-color: rgba(0, 229, 255, 0.26);
-}
-.ep-path {
-  font-family: monospace;
-  color: var(--color-teal-cyan);
-  font-weight: bold;
-}
-.ep-arrow {
-  margin: 0 0.5rem;
-  color: var(--color-text-muted);
-}
-.ep-target {
-  font-weight: 500;
-  color: var(--color-text-primary);
-}
-.ep-meta {
-  color: var(--color-text-secondary);
-  font-size: 0.8rem;
-  margin-left: 0.4rem;
-}
-
 .modal-overlay {
   position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
-  /* slightly darker overlay so modals stand out more from the page */
   background: rgba(0,0,0,0.75);
   display: flex;
   align-items: center;
@@ -549,10 +521,9 @@ tbody tr:hover { background: rgba(255, 255, 255, 0.02); }
   z-index: 1000;
 }
 .modal-content {
-  /* make modal content nearly opaque to avoid strong background bleed */
   background: rgba(12,14,16,0.98);
   padding: 2rem;
-  width: 400px;
+  width: 500px;
   max-width: 90vw;
   border-radius: 12px;
 }

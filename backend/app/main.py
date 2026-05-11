@@ -22,6 +22,8 @@ from routers.admin import router as admin_router
 from routers.admin_config import router as admin_config_router
 from routers.self_service import router as self_service_router
 from api_v1 import app as api_v1_app
+from usage_worker import usage_worker_task, usage_queue
+
 __name__ = "hanseware.fast-openai-api-proxy"
 
 logger = logging.getLogger(__name__)
@@ -51,14 +53,18 @@ def setup_logging():
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FOAP):
     setup_logging()
     auth_errors = get_auth_configuration_errors()
     if auth_errors:
         joined = " | ".join(auth_errors)
         logger.error(f"Invalid auth/OIDC configuration: {joined}")
         raise RuntimeError(f"Invalid auth/OIDC configuration: {joined}")
+        
+    worker_task = asyncio.create_task(usage_worker_task())
     yield
+    await usage_queue.put(None)
+    await worker_task
 
 
 app = FOAP(lifespan=lifespan)
@@ -66,11 +72,6 @@ app = FOAP(lifespan=lifespan)
 if is_access_control_enabled():
     logger.info("Enabling access control middleware")
     app.add_middleware(AccessControlMiddleware)
-
-
-
-
-
 
 @app.get("/health")
 async def health_check():
@@ -81,21 +82,15 @@ async def hello_world():
     return {"msg": "hello proxy"}
 
 @app.get("/health/{model}")
-async def health_check(request: Request):
+async def health_check_model(request: Request):
     model = request.path_params.get("model")
 
     model_entry = models.get_model_data(model)
     if not model_entry:
         raise HTTPException(status_code=404, detail="Model not supported for this API")
 
-    endpoints = model_entry.get("endpoints", [])
-
-    # Collect unique target_base_url + '/health' URLs
-    health_urls: Set[str] = {
-        f"{endpoint['target_base_url']}/health" for endpoint in endpoints
-    }
-
-    health_timeout = next((endpoint.get("health_timeout", 10) for endpoint in endpoints), 10)
+    health_urls: Set[str] = { f"{model_entry['target_base_url']}/health" }
+    health_timeout = model_entry.get("health_timeout", 10)
 
     async with httpx.AsyncClient(timeout=httpx.Timeout(health_timeout)) as client:
         results = await asyncio.gather(
@@ -124,8 +119,6 @@ if is_admin_api_enabled():
 if is_self_service_api_enabled():
     logger.info("Enabling self-service API routes under /api")
     app.include_router(self_service_router)
-
-
 
 if __name__ == "__main__":
     import uvicorn

@@ -39,14 +39,9 @@ const router = createRouter({
           component: () => import('../views/KeysView.vue')
         },
         {
-          path: 'endpoints',
-          name: 'endpoints',
-          component: () => import('../views/EndpointsView.vue')
-        },
-        {
-          path: 'quotas',
-          name: 'quotas',
-          component: () => import('../views/QuotasView.vue')
+          path: 'budgets',
+          name: 'budgets',
+          component: () => import('../views/BudgetsView.vue')
         },
         {
           path: 'providers',

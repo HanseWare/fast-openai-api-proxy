@@ -16,13 +16,9 @@
           <span class="icon">🔑</span>
           API Keys
         </router-link>
-        <router-link v-if="adminEnabled" to="/admin/endpoints" class="nav-link" active-class="active">
-          <span class="icon">🛡️</span>
-          Protected Endpoints
-        </router-link>
-        <router-link v-if="adminEnabled" to="/admin/quotas" class="nav-link" active-class="active">
-          <span class="icon">⚖️</span>
-          Quotas
+        <router-link v-if="adminEnabled" to="/admin/budgets" class="nav-link" active-class="active">
+          <span class="icon">💰</span>
+          Budgets
         </router-link>
         <router-link v-if="adminEnabled" to="/admin/providers" class="nav-link" active-class="active">
           <span class="icon">🌐</span>
@@ -84,8 +80,7 @@ const currentRouteName = computed(() => {
   const map = {
     'dashboard': 'Overview',
     'keys': 'API Keys Management',
-    'endpoints': 'Protected Endpoints',
-    'quotas': 'Quota Policies & Overrides',
+    'budgets': 'Budget Management',
     'providers': 'Provider Routing Configuration',
     'aliases': 'Virtual Models Mapping',
     'import': 'JSON Config Import Studio'

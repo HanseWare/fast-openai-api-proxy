@@ -1,9 +1,9 @@
 import hashlib
-from typing import Optional
+from typing import Optional, List
 
 from access_store import store
 from config import is_access_control_enabled, is_oidc_auth_enabled
-from oidc_auth import get_oidc_claims, get_owner_id_from_claims, has_self_service_access
+from oidc_auth import get_oidc_claims, get_owner_id_from_claims, has_self_service_access, _normalize_claim_values, _get_nested_claim, get_oidc_group_claim
 
 
 def extract_bearer_token(authorization: Optional[str]) -> Optional[str]:
@@ -34,6 +34,19 @@ def get_oidc_owner_id(token: Optional[str]) -> Optional[str]:
     if claims is None or not has_self_service_access(claims):
         return None
     return get_owner_id_from_claims(claims)
+
+
+def get_oidc_groups(token: Optional[str]) -> List[str]:
+    if not token or not is_oidc_auth_enabled():
+        return []
+    claims = get_oidc_claims(token)
+    if claims is None:
+        return []
+    group_claim_name = get_oidc_group_claim()
+    if not group_claim_name:
+        return []
+    groups = _normalize_claim_values(_get_nested_claim(claims, group_claim_name))
+    return [g.strip() for g in groups if g.strip()]
 
 
 def can_request(model, token):

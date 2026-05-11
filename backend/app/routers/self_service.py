@@ -9,7 +9,7 @@ from config import get_auth_mode_snapshot, is_self_service_oidc_only_enabled, is
 from oidc_auth import get_oidc_claims, has_self_service_access, get_owner_id_from_claims
 from oidc_bff import generate_auth_state, build_authorization_uri, exchange_code_for_token, validate_state, get_base_url_from_request
 from session_store import store as session_store
-from schemas.access import ApiKeyCreate, ApiKeyCreateResponse, ApiKeyRead, QuotaPolicyRead, QuotaUsageRead
+from schemas.access import ApiKeyCreate, ApiKeyCreateResponse, ApiKeyRead, BudgetRead, BudgetUsageRead
 
 router = APIRouter(prefix="/api", tags=["self-service"])
 
@@ -229,38 +229,15 @@ async def delete_own_key(key_id: str, request: Request, authorization: Optional[
     return {"status": "deleted", "key_id": key_id}
 
 
-@router.get("/keys/{key_id}/quota", response_model=QuotaPolicyRead, summary="Get own API key quota")
-async def get_own_key_quota(key_id: str, request: Request, authorization: Optional[str] = Header(default=None)):
+@router.get("/budgets", response_model=list[BudgetRead], summary="Get own budgets")
+async def get_own_budgets(request: Request, authorization: Optional[str] = Header(default=None)):
     token = _require_user_token(authorization, request)
     owner_id = _resolve_owner_id(token)
-    _require_owned_key(owner_id, key_id)
-
-    quota = store.get_quota(key_id)
-    if quota is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Quota not configured")
-    return {"api_key_id": key_id, "requests_per_minute": quota}
+    return store.list_budgets(entity_type="user", entity_id=owner_id)
 
 
-@router.get("/keys/{key_id}/usage", response_model=QuotaUsageRead, summary="Get own API key usage")
-async def get_own_key_usage(key_id: str, request: Request, authorization: Optional[str] = Header(default=None)):
+@router.get("/budgets/usage", response_model=list[BudgetUsageRead], summary="Get own budget usage")
+async def get_own_budget_usage(request: Request, authorization: Optional[str] = Header(default=None)):
     token = _require_user_token(authorization, request)
     owner_id = _resolve_owner_id(token)
-    _require_owned_key(owner_id, key_id)
-
-    usage = store.get_quota_usage(key_id)
-    if usage is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Quota not configured")
-    return usage
-
-
-@router.get("/usage/summary", summary="Get own aggregated usage summary")
-async def get_own_usage_summary(
-    request: Request,
-    authorization: Optional[str] = Header(default=None),
-    model: Optional[str] = Query(default=None, min_length=1),
-    api_path: Optional[str] = Query(default=None, min_length=1),
-    window_size: int = Query(default=6, ge=1, le=96),
-):
-    token = _require_user_token(authorization, request)
-    owner_id = _resolve_owner_id(token)
-    return store.get_usage_summary(owner_id=owner_id, model=model, api_path=api_path, window_size=window_size)
+    return store.get_all_budget_usage(entity_type="user", entity_id=owner_id)

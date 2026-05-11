@@ -6,9 +6,9 @@ class ProviderBase(BaseModel):
     name: str = Field(..., min_length=1)
     api_key_variable: Optional[str] = None
     prefix: str = Field(default="")
-    default_base_url: Optional[str] = None
-    default_request_timeout: Optional[int] = None
-    default_health_timeout: Optional[int] = None
+    base_url: Optional[str] = None
+    request_timeout: Optional[int] = None
+    health_timeout: Optional[int] = None
     max_upstream_retry_seconds: Optional[int] = Field(default=0)
     sync_provider_ratelimits: Optional[bool] = Field(default=False)
     route_fallbacks: Optional[Dict[str, str]] = Field(default_factory=dict)
@@ -26,6 +26,13 @@ class ProviderRead(ProviderBase):
 # Models
 class ProviderModelBase(BaseModel):
     name: str = Field(..., min_length=1)
+    type: str = Field(default="llm")
+    target_model_name: str = Field(..., min_length=1)
+    target_base_url: Optional[str] = None
+    fallback_model_name: Optional[str] = None
+    supported_endpoints: Optional[List[str]] = Field(default_factory=list)
+    price_per_unit: float = Field(default=0.0)
+    min_credits_per_request: float = Field(default=0.0)
     owned_by: Optional[str] = Field(default='FOAP')
     hide_on_models_endpoint: Optional[bool] = Field(default=False)
 
@@ -38,27 +45,6 @@ class ProviderModelUpdate(ProviderModelBase):
 class ProviderModelRead(ProviderModelBase):
     id: str
     provider_id: str
-
-# Endpoints
-class ProviderModelEndpointBase(BaseModel):
-    path: str = Field(..., min_length=1)
-    target_model_name: str = Field(..., min_length=1)
-    target_base_url: Optional[str] = None
-    request_timeout: Optional[int] = None
-    health_timeout: Optional[int] = None
-    fallback_model_name: Optional[str] = None
-
-class ProviderModelEndpointCreate(ProviderModelEndpointBase):
-    model_config = ConfigDict(protected_namespaces=())
-    model_id: str = Field(..., min_length=1)
-
-class ProviderModelEndpointUpdate(ProviderModelEndpointBase):
-    pass
-
-class ProviderModelEndpointRead(ProviderModelEndpointBase):
-    model_config = ConfigDict(protected_namespaces=())
-    id: str
-    model_id: str
 
 # Aliases
 class ModelAliasBase(BaseModel):
