@@ -39,6 +39,11 @@ const router = createRouter({
           component: () => import('../views/KeysView.vue')
         },
         {
+          path: 'endpoints',
+          name: 'endpoints',
+          component: () => import('../views/EndpointsView.vue')
+        },
+        {
           path: 'budgets',
           name: 'budgets',
           component: () => import('../views/BudgetsView.vue')

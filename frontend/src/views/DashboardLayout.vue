@@ -16,6 +16,10 @@
           <span class="icon">🔑</span>
           API Keys
         </router-link>
+        <router-link v-if="adminEnabled" to="/admin/endpoints" class="nav-link" active-class="active">
+          <span class="icon">🛡️</span>
+          Protected Endpoints
+        </router-link>
         <router-link v-if="adminEnabled" to="/admin/budgets" class="nav-link" active-class="active">
           <span class="icon">💰</span>
           Budgets
@@ -80,6 +84,7 @@ const currentRouteName = computed(() => {
   const map = {
     'dashboard': 'Overview',
     'keys': 'API Keys Management',
+    'endpoints': 'Protected Endpoints',
     'budgets': 'Budget Management',
     'providers': 'Provider Routing Configuration',
     'aliases': 'Virtual Models Mapping',
