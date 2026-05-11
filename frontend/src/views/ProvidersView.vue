@@ -239,9 +239,9 @@ const newProvider = ref({ name: '', api_key_variable: '', prefix: '', base_url: 
 const editProviderForm = ref({ show: false, id: null, name: '', api_key_variable: '', prefix: '', base_url: '', max_upstream_retry_seconds: 0, sync_provider_ratelimits: false, route_fallbacks_str: '{}' })
 
 const endpointMap = {
-  llm: ['/v1/chat/completions', '/v1/completions', '/v1/models'],
-  embedding: ['/v1/embeddings', '/v1/models'],
-  image: ['/v1/images/generations', '/v1/images/edits', '/v1/images/variations'],
+  llm: ['/v1/chat/completions', '/v1/completions', '/v1/responses'],
+  embedding: ['/v1/embeddings'],
+  image: ['/v1/images/generations', '/v1/images/edits', '/v1/images/variations', '/v1/images/data'],
   audio_transcription: ['/v1/audio/transcriptions', '/v1/audio/translations'],
   audio_speech: ['/v1/audio/speech']
 }

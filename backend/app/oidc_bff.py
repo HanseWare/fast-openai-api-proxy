@@ -122,7 +122,7 @@ def exchange_code_for_token(
         code_verifier: PKCE code verifier from generate_auth_state()
 
     Returns:
-        Token response dict with 'access_token', 'token_type', etc., or None on error.
+        Token response dict with 'access_token', 'refresh_token' (if available), 'token_type', etc., or None on error.
     """
     issuer_url = get_oidc_issuer_url()
     client_id = get_oidc_client_id()
@@ -140,6 +140,44 @@ def exchange_code_for_token(
         "client_secret": client_secret,
         "redirect_uri": redirect_uri,
         "code_verifier": code_verifier,
+    }
+
+    try:
+        req = Request(
+            token_endpoint,
+            data=urlencode(body).encode(),
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        with urlopen(req, timeout=5) as response:
+            token_response = json.loads(response.read().decode("utf-8"))
+        return token_response
+    except Exception as e:
+        return None
+
+
+def refresh_access_token(refresh_token: str) -> Optional[dict]:
+    """Use a refresh token to obtain a new access token.
+
+    Args:
+        refresh_token: The refresh token from a prior token response
+
+    Returns:
+        Token response dict with 'access_token', 'refresh_token' (if rotated), etc., or None on error.
+    """
+    issuer_url = get_oidc_issuer_url()
+    client_id = get_oidc_client_id()
+    client_secret = get_oidc_client_secret()
+
+    if not issuer_url or not client_id or not client_secret or not refresh_token:
+        return None
+
+    token_endpoint = _get_token_endpoint(issuer_url)
+
+    body = {
+        "grant_type": "refresh_token",
+        "refresh_token": refresh_token,
+        "client_id": client_id,
+        "client_secret": client_secret,
     }
 
     try:

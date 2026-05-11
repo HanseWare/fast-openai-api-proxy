@@ -62,18 +62,21 @@ class ConfigStore:
 
                 CREATE TABLE IF NOT EXISTS provider_ratelimits (
                     provider_name TEXT PRIMARY KEY,
+                    limit_second INTEGER,
+                    remaining_second INTEGER,
                     limit_minute INTEGER,
                     remaining_minute INTEGER,
                     limit_hour INTEGER,
                     remaining_hour INTEGER,
                     limit_day INTEGER,
+                    remaining_day INTEGER,
                     limit_month INTEGER,
                     remaining_month INTEGER,
                     ratelimit_limit INTEGER,
                     ratelimit_remaining INTEGER,
                     ratelimit_reset INTEGER,
-                    current_limiting_window TEXT,
                     ratelimit_retry_after INTEGER,
+                    current_limiting_window TEXT DEFAULT 'second',
                     updated_at INTEGER NOT NULL
                 );
                 """
@@ -105,7 +108,7 @@ class ConfigStore:
         with self._connect() as conn:
             row = conn.execute(
                 """
-                SELECT provider_name, limit_second, remaining_second, limit_minute, remaining_minute, limit_hour, remaining_hour, limit_day, remaining_day, limit_month, remaining_month, ratelimit_limit, ratelimit_remaining, ratelimit_reset, current_limiting_window, ratelimit_retry_after, updated_at
+                SELECT *
                 FROM provider_ratelimits
                 WHERE provider_name = ?
                 """,
@@ -114,34 +117,18 @@ class ConfigStore:
 
         return dict(row) if row is not None else None
 
-    def sync_provider_ratelimits(self, provider_name: str, limits: Dict[str, Any]) -> Dict[str, Any]:
+    def sync_provider_ratelimits(self, provider_name: str, limits: dict[str, Any]) -> dict:
         now = int(time.time())
         existing = self.get_provider_ratelimits(provider_name) or {}
+        fields = ("limit_second", "remaining_second","limit_minute", "remaining_minute", "limit_hour", "remaining_hour", "limit_day", "remaining_day", "limit_month", "remaining_month", "ratelimit_limit", "ratelimit_remaining", "ratelimit_reset", "ratelimit_retry_after", "current_limiting_window", "updated_at")
         merged = {
             "provider_name": provider_name,
-            "limit_second": existing.get("limit_second"),
-            "remaining_second": existing.get("remaining_second"),
-            "limit_minute": existing.get("limit_minute"),
-            "remaining_minute": existing.get("remaining_minute"),
-            "limit_hour": existing.get("limit_hour"),
-            "remaining_hour": existing.get("remaining_hour"),
-            "limit_day": existing.get("limit_day"),
-            "remaining_day": existing.get("remaining_day"),
-            "limit_month": existing.get("limit_month"),
-            "remaining_month": existing.get("remaining_month"),
-            "ratelimit_limit": existing.get("ratelimit_limit"),
-            "ratelimit_remaining": existing.get("ratelimit_remaining"),
-            "ratelimit_reset": existing.get("ratelimit_reset"),
-            "current_limiting_window": existing.get("current_limiting_window"),
-            "ratelimit_retry_after": existing.get("ratelimit_retry_after"),
         }
 
-        for field in ("limit_second", "remaining_second", "limit_minute", "remaining_minute", "limit_hour", "remaining_hour", "limit_day", "remaining_day", "limit_month", "remaining_month", "ratelimit_limit", "ratelimit_remaining", "ratelimit_reset", "ratelimit_retry_after"):
+        for field in fields:
+            merged[field] = existing.get(field)
             if field in limits and limits[field] is not None:
                 merged[field] = int(limits[field])
-
-        if "current_limiting_window" in limits:
-            merged["current_limiting_window"] = limits["current_limiting_window"]
 
         with self._lock:
             with self._connect() as conn:
@@ -162,8 +149,8 @@ class ConfigStore:
                         ratelimit_limit,
                         ratelimit_remaining,
                         ratelimit_reset,
-                        current_limiting_window,
                         ratelimit_retry_after,
+                        current_limiting_window,
                         updated_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(provider_name)
@@ -181,8 +168,8 @@ class ConfigStore:
                         ratelimit_limit = excluded.ratelimit_limit,
                         ratelimit_remaining = excluded.ratelimit_remaining,
                         ratelimit_reset = excluded.ratelimit_reset,
-                        current_limiting_window = excluded.current_limiting_window,
                         ratelimit_retry_after = excluded.ratelimit_retry_after,
+                        current_limiting_window = excluded.current_limiting_window,
                         updated_at = excluded.updated_at
                     """,
                     (
@@ -200,8 +187,8 @@ class ConfigStore:
                         merged["ratelimit_limit"],
                         merged["ratelimit_remaining"],
                         merged["ratelimit_reset"],
-                        merged["current_limiting_window"],
                         merged["ratelimit_retry_after"],
+                        merged["current_limiting_window"],
                         now,
                     ),
                 )

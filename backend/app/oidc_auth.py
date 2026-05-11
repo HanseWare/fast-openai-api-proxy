@@ -1,9 +1,12 @@
 import json
+import logging
 from typing import Any, Optional
 from urllib.request import urlopen
 
 import jwt
 from jwt import PyJWKClient
+
+logger = logging.getLogger(__name__)
 
 from config import (
     get_oidc_admin_values,
@@ -55,7 +58,7 @@ class OIDCVerifier:
     def __init__(self):
         self._jwk_client: Optional[PyJWKClient] = None
 
-    def _get_jwk_client(self) -> PyJWKClient:
+    def _get_jwk_client(self) -> Optional[PyJWKClient]:
         if self._jwk_client is not None:
             return self._jwk_client
 
@@ -89,11 +92,48 @@ class OIDCVerifier:
                 options=options,
             )
             return claims
-        except Exception:
+        except jwt.ExpiredSignatureError:
+            logger.debug("OIDC access token has expired (exp claim validation failed)")
+            return None
+        except Exception as e:
+            logger.debug(f"OIDC token verification failed: {type(e).__name__}: {e}")
             return None
 
 
 _verifier = OIDCVerifier()
+
+
+def try_refresh_session(session_data: dict[str, Any]) -> bool:
+    """Attempt to refresh an expired session using the refresh token.
+    
+    Updates session_data in-place with a new access_token if successful.
+    Returns True if refresh succeeded, False otherwise.
+    """
+    if not session_data:
+        return False
+    
+    access_token = session_data.get("access_token")
+    refresh_token = session_data.get("refresh_token")
+    
+    if not refresh_token:
+        logger.debug("No refresh token available for session refresh")
+        return False
+    
+    # Try to refresh
+    from oidc_bff import refresh_access_token
+    token_response = refresh_access_token(str(refresh_token))
+    if not token_response or "access_token" not in token_response:
+        logger.warning("Failed to refresh OIDC session: token endpoint returned invalid response")
+        return False
+    
+    # Update session with new access token
+    new_access_token = token_response.get("access_token")
+    new_refresh_token = token_response.get("refresh_token", refresh_token)  # Some providers rotate, some don't
+    
+    session_data["access_token"] = new_access_token
+    session_data["refresh_token"] = new_refresh_token
+    logger.info("Successfully refreshed OIDC session")
+    return True
 
 
 def get_oidc_claims(token: Optional[str]) -> Optional[dict[str, Any]]:

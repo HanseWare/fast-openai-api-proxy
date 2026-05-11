@@ -14,7 +14,7 @@ from config import (
     get_oidc_client_id,
     get_oidc_client_secret,
 )
-from oidc_auth import get_oidc_claims, has_admin_access, get_owner_id_from_claims
+from oidc_auth import get_oidc_claims, has_admin_access, get_owner_id_from_claims, try_refresh_session
 from oidc_bff import generate_auth_state, build_authorization_uri, exchange_code_for_token, validate_state, get_base_url_from_request
 from session_store import store as session_store
 from schemas.access import (
@@ -56,10 +56,21 @@ def require_admin(authorization: Optional[str] = Header(default=None), foap_sess
             if not session:
                 raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired session")
             access_token = session.get("access_token")
-            claims = get_oidc_claims(access_token)
-            if claims is None or not has_admin_access(claims):
-                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="OIDC admin claim missing or invalid")
-            return
+            
+            # If access token is expired, try to refresh
+            if access_token and not get_oidc_claims(access_token):
+                if try_refresh_session(session):
+                    access_token = session.get("access_token")
+                else:
+                    access_token = None
+            
+            if access_token:
+                claims = get_oidc_claims(access_token)
+                if claims is None or not has_admin_access(claims):
+                    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="OIDC admin claim missing or invalid")
+                return
+            
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired session")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="OIDC bearer token required")
 
     # If there is an expected static admin token, accept it
@@ -77,9 +88,18 @@ def require_admin(authorization: Optional[str] = Header(default=None), foap_sess
         session = session_store.get(foap_session)
         if session:
             access_token = session.get("access_token")
-            claims = get_oidc_claims(access_token)
-            if claims is not None and has_admin_access(claims):
-                return
+            
+            # If access token is expired, try to refresh
+            if access_token and not get_oidc_claims(access_token):
+                if try_refresh_session(session):
+                    access_token = session.get("access_token")
+                else:
+                    access_token = None
+            
+            if access_token:
+                claims = get_oidc_claims(access_token)
+                if claims is not None and has_admin_access(claims):
+                    return
 
     if not expected_token and not is_oidc_auth_enabled():
         raise HTTPException(
@@ -119,11 +139,12 @@ async def oidc_login(response: Response, request: Request):
         "scope": "admin",
     })
 
-    # Set session cookie
+    # Set session cookie. Use the session store default TTL so client cookie
+    # lifetime matches server-side session expiry (default 24 hours).
     response.set_cookie(
         key="foap_oidc_session",
         value=session_id,
-        max_age=600,  # 10 minutes for auth flow
+        max_age=session_store.default_ttl,  # align cookie with server session TTL
         httponly=True,
         secure=True,
         samesite="lax",
@@ -169,6 +190,7 @@ async def oidc_callback(code: str, state: str, request: Request, oidc_session: O
     # Create authenticated session
     auth_session_id = session_store.create({
         "access_token": access_token,
+        "refresh_token": token_response.get("refresh_token"),  # Store refresh token if available
         "owner_id": get_owner_id_from_claims(claims),
         "scope": "admin",
     }, ttl_seconds=86400)  # 24 hours

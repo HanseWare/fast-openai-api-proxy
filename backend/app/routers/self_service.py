@@ -6,7 +6,7 @@ from fastapi.responses import RedirectResponse, JSONResponse
 from access_store import store
 from auth import extract_bearer_token, get_oidc_owner_id, identity_from_token
 from config import get_auth_mode_snapshot, is_self_service_oidc_only_enabled, is_oidc_auth_enabled, get_oidc_client_id, get_oidc_client_secret
-from oidc_auth import get_oidc_claims, has_self_service_access, get_owner_id_from_claims
+from oidc_auth import get_oidc_claims, has_self_service_access, get_owner_id_from_claims, try_refresh_session
 from oidc_bff import generate_auth_state, build_authorization_uri, exchange_code_for_token, validate_state, get_base_url_from_request
 from session_store import store as session_store
 from schemas.access import ApiKeyCreate, ApiKeyCreateResponse, ApiKeyRead, BudgetRead, BudgetUsageRead
@@ -48,11 +48,12 @@ async def oidc_login(response: Response, request: Request):
         "scope": "self-service",
     })
 
-    # Set session cookie
+    # Set session cookie. Use the session store default TTL so client cookie
+    # lifetime matches server-side session expiry (default 24 hours).
     response.set_cookie(
         key="foap_oidc_session",
         value=session_id,
-        max_age=600,  # 10 minutes for auth flow
+        max_age=session_store.default_ttl,  # align cookie with server session TTL
         httponly=True,
         secure=True,
         samesite="lax",
@@ -98,6 +99,7 @@ async def oidc_callback(code: str, state: str, request: Request, oidc_session: O
     # Create authenticated session
     auth_session_id = session_store.create({
         "access_token": access_token,
+        "refresh_token": token_response.get("refresh_token"),  # Store refresh token if available
         "owner_id": get_owner_id_from_claims(claims),
         "scope": "self-service",
     }, ttl_seconds=86400)  # 24 hours
@@ -151,6 +153,8 @@ def _require_user_token(authorization: Optional[str], request: Request) -> str:
 
     When the frontend uses the BFF cookie session (httponly cookie `foap_session`), the backend
     should accept that session and extract the access_token stored in the session store.
+    
+    If the stored access token is expired, attempts to refresh using the stored refresh_token.
     """
     token = extract_bearer_token(authorization)
 
@@ -161,6 +165,14 @@ def _require_user_token(authorization: Optional[str], request: Request) -> str:
             session_data = session_store.get(session_id)
             if session_data and isinstance(session_data, dict):
                 token = session_data.get("access_token")
+                
+                # If token is expired, try to refresh it
+                if token and not get_oidc_claims(token):
+                    # Token is invalid/expired; try to refresh
+                    if try_refresh_session(session_data):
+                        token = session_data.get("access_token")
+                    else:
+                        token = None
 
     if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
