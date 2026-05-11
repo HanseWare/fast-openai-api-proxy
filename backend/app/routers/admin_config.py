@@ -82,8 +82,7 @@ async def get_provider_ratelimits(provider_id: str, _: None = Depends(require_ad
     provider = config_store.get_provider(provider_id)
     if not provider:
         raise HTTPException(status_code=404, detail="Provider not found")
-    from access_store import store
-    return store.get_provider_ratelimits(provider["name"]) or {}
+    return config_store.get_provider_ratelimits(provider["name"]) or {}
 
 @router.post("/models", response_model=ProviderModelRead)
 async def create_model(payload: ProviderModelCreate, _: None = Depends(require_admin)):

@@ -73,6 +73,89 @@ class ConfigStore:
                 """
             )
 
+    # ---------------- Provider Ratelimits ----------------
+
+    def get_provider_ratelimits(self, provider_name: str) -> Optional[Dict[str, Any]]:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT provider_name, limit_minute, remaining_minute, limit_hour, remaining_hour, limit_day, remaining_day, updated_at
+                FROM provider_ratelimits
+                WHERE provider_name = ?
+                """,
+                (provider_name,),
+            ).fetchone()
+
+        return dict(row) if row is not None else None
+
+    def sync_provider_ratelimits(self, provider_name: str, limits: Dict[str, Any]) -> Dict[str, Any]:
+        now = int(time.time())
+        existing = self.get_provider_ratelimits(provider_name) or {}
+        merged = {
+            "provider_name": provider_name,
+            "limit_minute": existing.get("limit_minute"),
+            "remaining_minute": existing.get("remaining_minute"),
+            "limit_hour": existing.get("limit_hour"),
+            "remaining_hour": existing.get("remaining_hour"),
+            "limit_day": existing.get("limit_day"),
+            "remaining_day": existing.get("remaining_day"),
+        }
+
+        for field in ("limit_minute", "remaining_minute", "limit_hour", "remaining_hour", "limit_day", "remaining_day"):
+            if field in limits and limits[field] is not None:
+                merged[field] = int(limits[field])
+
+        with self._lock:
+            with self._connect() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO provider_ratelimits (
+                        provider_name,
+                        limit_minute,
+                        remaining_minute,
+                        limit_hour,
+                        remaining_hour,
+                        limit_day,
+                        remaining_day,
+                        updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(provider_name)
+                    DO UPDATE SET
+                        limit_minute = excluded.limit_minute,
+                        remaining_minute = excluded.remaining_minute,
+                        limit_hour = excluded.limit_hour,
+                        remaining_hour = excluded.remaining_hour,
+                        limit_day = excluded.limit_day,
+                        remaining_day = excluded.remaining_day,
+                        updated_at = excluded.updated_at
+                    """,
+                    (
+                        provider_name,
+                        merged["limit_minute"],
+                        merged["remaining_minute"],
+                        merged["limit_hour"],
+                        merged["remaining_hour"],
+                        merged["limit_day"],
+                        merged["remaining_day"],
+                        now,
+                    ),
+                )
+
+        merged["updated_at"] = now
+        return merged
+
+    def get_exhausted_provider_ratelimit_windows(self, provider_name: str) -> List[str]:
+        snapshot = self.get_provider_ratelimits(provider_name)
+        if not snapshot:
+            return []
+
+        exhausted: List[str] = []
+        for window in ("minute", "hour", "day"):
+            remaining = snapshot.get(f"remaining_{window}")
+            if remaining is not None and int(remaining) <= 0:
+                exhausted.append(window)
+        return exhausted
+
     # ---------------- Providers ----------------
 
     def list_providers(self) -> List[Dict[str, Any]]:

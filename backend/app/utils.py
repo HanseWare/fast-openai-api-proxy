@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse, JSONResponse, Response
 from starlette.background import BackgroundTask
 
 from access_store import store
+from config_store import config_store
 from auth import can_request
 from models_handler import handler as models
 from responses_translator import (
@@ -143,8 +144,9 @@ def _raise_if_provider_rate_limited(model_data: Dict[str, Any]) -> None:
     if not provider_name:
         return
 
-    exhausted_window = store.get_exhausted_provider_ratelimit_window(provider_name)
-    if exhausted_window:
+    exhausted_windows = config_store.get_exhausted_provider_ratelimit_windows(provider_name)
+    if exhausted_windows:
+        exhausted_window = exhausted_windows[0]
         raise HTTPException(
             status_code=429,
             detail=f"Upstream provider rate limit exhausted for {provider_name} ({exhausted_window})",
@@ -279,7 +281,7 @@ async def handle_request(request: Request, api_path: str):
     if model_data.get('sync_provider_ratelimits'):
         limits = extract_provider_ratelimits(response.headers)
         if limits:
-            store.sync_provider_ratelimits(model_data['provider'], limits)
+            config_store.sync_provider_ratelimits(model_data['provider'], limits)
 
     if stream:
         if response.status_code >= 400:
@@ -494,7 +496,7 @@ async def handle_subresource_request(
     if model_data.get('sync_provider_ratelimits') and response:
         limits = extract_provider_ratelimits(response.headers)
         if limits:
-            store.sync_provider_ratelimits(model_data['provider'], limits)
+            config_store.sync_provider_ratelimits(model_data['provider'], limits)
 
     return response
 
