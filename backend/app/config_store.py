@@ -67,11 +67,37 @@ class ConfigStore:
                     limit_hour INTEGER,
                     remaining_hour INTEGER,
                     limit_day INTEGER,
-                    remaining_day INTEGER,
+                    limit_month INTEGER,
+                    remaining_month INTEGER,
+                    ratelimit_limit INTEGER,
+                    ratelimit_remaining INTEGER,
+                    ratelimit_reset INTEGER,
+                    current_limiting_window TEXT,
+                    ratelimit_retry_after INTEGER,
                     updated_at INTEGER NOT NULL
                 );
                 """
             )
+            
+            # Simple migration for existing tables
+            try:
+                conn.execute("ALTER TABLE provider_ratelimits ADD COLUMN limit_month INTEGER")
+                conn.execute("ALTER TABLE provider_ratelimits ADD COLUMN remaining_month INTEGER")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                conn.execute("ALTER TABLE provider_ratelimits ADD COLUMN limit_second INTEGER")
+                conn.execute("ALTER TABLE provider_ratelimits ADD COLUMN remaining_second INTEGER")
+                conn.execute("ALTER TABLE provider_ratelimits ADD COLUMN ratelimit_limit INTEGER")
+                conn.execute("ALTER TABLE provider_ratelimits ADD COLUMN ratelimit_remaining INTEGER")
+                conn.execute("ALTER TABLE provider_ratelimits ADD COLUMN ratelimit_reset INTEGER")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                conn.execute("ALTER TABLE provider_ratelimits ADD COLUMN current_limiting_window TEXT")
+                conn.execute("ALTER TABLE provider_ratelimits ADD COLUMN ratelimit_retry_after INTEGER")
+            except sqlite3.OperationalError:
+                pass
 
     # ---------------- Provider Ratelimits ----------------
 
@@ -79,7 +105,7 @@ class ConfigStore:
         with self._connect() as conn:
             row = conn.execute(
                 """
-                SELECT provider_name, limit_minute, remaining_minute, limit_hour, remaining_hour, limit_day, remaining_day, updated_at
+                SELECT provider_name, limit_second, remaining_second, limit_minute, remaining_minute, limit_hour, remaining_hour, limit_day, remaining_day, limit_month, remaining_month, ratelimit_limit, ratelimit_remaining, ratelimit_reset, current_limiting_window, ratelimit_retry_after, updated_at
                 FROM provider_ratelimits
                 WHERE provider_name = ?
                 """,
@@ -93,17 +119,29 @@ class ConfigStore:
         existing = self.get_provider_ratelimits(provider_name) or {}
         merged = {
             "provider_name": provider_name,
+            "limit_second": existing.get("limit_second"),
+            "remaining_second": existing.get("remaining_second"),
             "limit_minute": existing.get("limit_minute"),
             "remaining_minute": existing.get("remaining_minute"),
             "limit_hour": existing.get("limit_hour"),
             "remaining_hour": existing.get("remaining_hour"),
             "limit_day": existing.get("limit_day"),
             "remaining_day": existing.get("remaining_day"),
+            "limit_month": existing.get("limit_month"),
+            "remaining_month": existing.get("remaining_month"),
+            "ratelimit_limit": existing.get("ratelimit_limit"),
+            "ratelimit_remaining": existing.get("ratelimit_remaining"),
+            "ratelimit_reset": existing.get("ratelimit_reset"),
+            "current_limiting_window": existing.get("current_limiting_window"),
+            "ratelimit_retry_after": existing.get("ratelimit_retry_after"),
         }
 
-        for field in ("limit_minute", "remaining_minute", "limit_hour", "remaining_hour", "limit_day", "remaining_day"):
+        for field in ("limit_second", "remaining_second", "limit_minute", "remaining_minute", "limit_hour", "remaining_hour", "limit_day", "remaining_day", "limit_month", "remaining_month", "ratelimit_limit", "ratelimit_remaining", "ratelimit_reset", "ratelimit_retry_after"):
             if field in limits and limits[field] is not None:
                 merged[field] = int(limits[field])
+
+        if "current_limiting_window" in limits:
+            merged["current_limiting_window"] = limits["current_limiting_window"]
 
         with self._lock:
             with self._connect() as conn:
@@ -111,32 +149,59 @@ class ConfigStore:
                     """
                     INSERT INTO provider_ratelimits (
                         provider_name,
+                        limit_second,
+                        remaining_second,
                         limit_minute,
                         remaining_minute,
                         limit_hour,
                         remaining_hour,
                         limit_day,
                         remaining_day,
+                        limit_month,
+                        remaining_month,
+                        ratelimit_limit,
+                        ratelimit_remaining,
+                        ratelimit_reset,
+                        current_limiting_window,
+                        ratelimit_retry_after,
                         updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(provider_name)
                     DO UPDATE SET
+                        limit_second = excluded.limit_second,
+                        remaining_second = excluded.remaining_second,
                         limit_minute = excluded.limit_minute,
                         remaining_minute = excluded.remaining_minute,
                         limit_hour = excluded.limit_hour,
                         remaining_hour = excluded.remaining_hour,
                         limit_day = excluded.limit_day,
                         remaining_day = excluded.remaining_day,
+                        limit_month = excluded.limit_month,
+                        remaining_month = excluded.remaining_month,
+                        ratelimit_limit = excluded.ratelimit_limit,
+                        ratelimit_remaining = excluded.ratelimit_remaining,
+                        ratelimit_reset = excluded.ratelimit_reset,
+                        current_limiting_window = excluded.current_limiting_window,
+                        ratelimit_retry_after = excluded.ratelimit_retry_after,
                         updated_at = excluded.updated_at
                     """,
                     (
                         provider_name,
+                        merged["limit_second"],
+                        merged["remaining_second"],
                         merged["limit_minute"],
                         merged["remaining_minute"],
                         merged["limit_hour"],
                         merged["remaining_hour"],
                         merged["limit_day"],
                         merged["remaining_day"],
+                        merged["limit_month"],
+                        merged["remaining_month"],
+                        merged["ratelimit_limit"],
+                        merged["ratelimit_remaining"],
+                        merged["ratelimit_reset"],
+                        merged["current_limiting_window"],
+                        merged["ratelimit_retry_after"],
                         now,
                     ),
                 )
@@ -144,17 +209,22 @@ class ConfigStore:
         merged["updated_at"] = now
         return merged
 
-    def get_exhausted_provider_ratelimit_windows(self, provider_name: str) -> List[str]:
+    def get_exhausted_provider_ratelimit_window(self, provider_name: str) -> Optional[str]:
         snapshot = self.get_provider_ratelimits(provider_name)
         if not snapshot:
-            return []
-
-        exhausted: List[str] = []
-        for window in ("minute", "hour", "day"):
-            remaining = snapshot.get(f"remaining_{window}")
-            if remaining is not None and int(remaining) <= 0:
-                exhausted.append(window)
-        return exhausted
+            return None
+        window = snapshot.get("current_limiting_window")
+        remaining = snapshot.get("ratelimit_remaining")
+        retry_after = snapshot.get("ratelimit_retry_after")
+        updated_at = snapshot.get("updated_at")
+        if remaining is not None and isinstance(remaining, int) and remaining <= 0 and retry_after is not None and isinstance(retry_after, int) and updated_at is not None and isinstance(updated_at, int):
+            time_to_reset = updated_at + retry_after - int(time.time())
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"Time to reset {provider_name} ratelimit window: {time_to_reset} seconds")
+            if time_to_reset > 0:
+                return window
+        return None
 
     # ---------------- Providers ----------------
 

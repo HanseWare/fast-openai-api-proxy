@@ -108,6 +108,7 @@ def extract_provider_ratelimits(headers: httpx.Headers) -> dict:
     for key, val in headers.items():
         k = key.lower()
         if k == 'x-ratelimit-limit-second':limits['limit_second'] = int(val)
+        elif k == 'x-ratelimit-remaining-second':limits['remaining_second'] = int(val)
         elif k == 'x-ratelimit-limit-minute': limits['limit_minute'] = int(val)
         elif k == 'x-ratelimit-remaining-minute': limits['remaining_minute'] = int(val)
         elif k == 'x-ratelimit-limit-hour': limits['limit_hour'] = int(val)
@@ -144,9 +145,8 @@ def _raise_if_provider_rate_limited(model_data: Dict[str, Any]) -> None:
     if not provider_name:
         return
 
-    exhausted_windows = config_store.get_exhausted_provider_ratelimit_windows(provider_name)
-    if exhausted_windows:
-        exhausted_window = exhausted_windows[0]
+    exhausted_window = config_store.get_exhausted_provider_ratelimit_window(provider_name)
+    if exhausted_window:
         raise HTTPException(
             status_code=429,
             detail=f"Upstream provider rate limit exhausted for {provider_name} ({exhausted_window})",
