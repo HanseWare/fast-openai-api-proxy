@@ -39,7 +39,7 @@
               {{ p.sync_provider_ratelimits ? 'Synced' : 'Not-Synced' }}
             </span>
           </div>
-          <div v-if="p.sync_provider_ratelimits" class="rate-rows">
+          <div v-if="p.sync_provider_ratelimits && ratelimits[p.id]" class="rate-rows">
             <div class="rate-row"><span>Minute</span><span>{{ fmt(ratelimits[p.id].remaining_minute) }} / {{ fmt(ratelimits[p.id].limit_minute) }}</span></div>
             <div class="rate-row"><span>Hour</span><span>{{ fmt(ratelimits[p.id].remaining_hour) }} / {{ fmt(ratelimits[p.id].limit_hour) }}</span></div>
             <div class="rate-row"><span>Day</span><span>{{ fmt(ratelimits[p.id].remaining_day) }} / {{ fmt(ratelimits[p.id].limit_day) }}</span></div>
