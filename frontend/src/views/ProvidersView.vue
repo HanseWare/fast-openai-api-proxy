@@ -98,8 +98,8 @@
                 <span v-else class="text-muted">None</span>
               </td>
               <td style="font-size: 0.85rem">
-                <div>Price/Unit: {{ m.price_per_unit || 0 }}</div>
-                <div>Min Credits: {{ m.min_credits_per_request || 0 }}</div>
+                <div>Price: {{ formatPricePerDisplayUnit(m.price_per_unit || 0, m.type) }}</div>
+                <div>Min Credits: {{ formatCredits(m.min_credits_per_request || 0, 4) }}</div>
               </td>
               <td>
                 <button @click="openEditModel(m, p.id)" class="btn-icon" title="Edit Model">✏️</button>
@@ -198,8 +198,8 @@
 
           <div class="inline-form" style="margin-bottom: 1rem;">
             <div class="input-group">
-              <label>Price Per Unit</label>
-              <input type="number" step="0.0000001" v-model.number="modelForm.price_per_unit" />
+              <label>{{ priceInputLabel }}</label>
+              <input type="number" step="0.0000001" v-model.number="modelForm.price_per_unit_display" />
             </div>
             <div class="input-group">
               <label>Min Credits / Request</label>
@@ -230,6 +230,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { fetchApi } from '../api'
+import { formatCredits, formatPricePerDisplayUnit, fromBackendPrice, toBackendPrice, isTokenPricedModelType } from '../utils/budgetFormatting'
 
 const providers = ref([])
 const showCreateProvider = ref(false)
@@ -256,9 +257,16 @@ const modelForm = ref({
   target_base_url: '',
   supported_endpoints: [],
   price_per_unit: 0.0,
+  price_per_unit_display: 0.0,
   min_credits_per_request: 0.0,
   owned_by: 'FOAP', 
   hide_on_models_endpoint: false 
+})
+
+const priceInputLabel = computed(() => {
+  return isTokenPricedModelType(modelForm.value.type)
+    ? 'Price per 1M Tokens'
+    : 'Price per Unit'
 })
 
 const availableEndpoints = computed(() => {
@@ -353,6 +361,7 @@ function openAddModel(providerId) {
     target_base_url: '',
     supported_endpoints: ['/v1/chat/completions'],
     price_per_unit: 0.0,
+    price_per_unit_display: 0.0,
     min_credits_per_request: 0.0,
     owned_by: 'FOAP',
     hide_on_models_endpoint: false
@@ -370,6 +379,7 @@ function openEditModel(model, providerId) {
     target_base_url: model.target_base_url || '',
     supported_endpoints: model.supported_endpoints || [],
     price_per_unit: model.price_per_unit || 0.0,
+    price_per_unit_display: fromBackendPrice(model.price_per_unit || 0.0, model.type || 'llm'),
     min_credits_per_request: model.min_credits_per_request || 0.0,
     owned_by: model.owned_by || 'FOAP',
     hide_on_models_endpoint: !!model.hide_on_models_endpoint
@@ -385,7 +395,7 @@ async function submitModelForm() {
       target_model_name: modelForm.value.target_model_name,
       target_base_url: modelForm.value.target_base_url || null,
       supported_endpoints: modelForm.value.supported_endpoints,
-      price_per_unit: modelForm.value.price_per_unit,
+      price_per_unit: toBackendPrice(modelForm.value.price_per_unit_display, modelForm.value.type),
       min_credits_per_request: modelForm.value.min_credits_per_request,
       owned_by: modelForm.value.owned_by,
       hide_on_models_endpoint: modelForm.value.hide_on_models_endpoint

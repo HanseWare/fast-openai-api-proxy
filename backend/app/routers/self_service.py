@@ -1,17 +1,143 @@
+import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request, Cookie, status, Response
 from fastapi.responses import RedirectResponse, JSONResponse
 
 from access_store import store
-from auth import extract_bearer_token, get_oidc_owner_id, identity_from_token
+from auth import extract_bearer_token, get_oidc_groups, get_oidc_owner_id, identity_from_token
 from config import get_auth_mode_snapshot, is_self_service_oidc_only_enabled, is_oidc_auth_enabled, get_oidc_client_id, get_oidc_client_secret
 from oidc_auth import get_oidc_claims, has_self_service_access, get_owner_id_from_claims, try_refresh_session
 from oidc_bff import generate_auth_state, build_authorization_uri, exchange_code_for_token, validate_state, get_base_url_from_request
 from session_store import store as session_store
-from schemas.access import ApiKeyCreate, ApiKeyCreateResponse, ApiKeyRead, BudgetRead, BudgetUsageRead
+from schemas.access import ApiKeyCreate, ApiKeyCreateResponse, ApiKeyRead, BudgetContextRead, BudgetRead, BudgetUsageRead
 
 router = APIRouter(prefix="/api", tags=["self-service"])
+
+_BUDGET_SCOPE_CATEGORY = {
+    "llm": "tokens",
+    "embedding": "tokens",
+    "audio_transcription": "audio",
+    "audio_speech": "audio",
+    "stt": "audio",
+    "tts": "audio",
+    "image": "images",
+    "image-gen": "images",
+}
+
+_SUMMARY_CATEGORIES = ("tokens", "audio", "images")
+_SUMMARY_WINDOWS = ("daily", "monthly")
+
+
+def _normalize_scope(scope: Optional[str]) -> str:
+    return (scope or "").strip()
+
+
+def _budget_category(scope: Optional[str]) -> Optional[str]:
+    normalized = _normalize_scope(scope)
+    if not normalized:
+        return None
+    return _BUDGET_SCOPE_CATEGORY.get(normalized)
+
+
+def _current_bucket(window: str, timestamp: Optional[int] = None) -> str:
+    ts = int(datetime.datetime.now().timestamp()) if timestamp is None else timestamp
+    dt = datetime.datetime.fromtimestamp(ts)
+    return dt.strftime("%Y-%m-%d") if window == "daily" else dt.strftime("%Y-%m")
+
+
+def _budget_matches_category(budget_scope: Optional[str], category: str) -> bool:
+    normalized = _normalize_scope(budget_scope)
+    return not normalized or _budget_category(normalized) == category
+
+
+def _pick_relevant_budget(budgets: list[dict], category: str, window: str) -> tuple[Optional[dict], int]:
+    candidates = [
+        budget
+        for budget in budgets
+        if budget.get("window") == window and _budget_matches_category(budget.get("scope"), category)
+    ]
+    if not candidates:
+        return None, 0
+
+    def sort_key(budget: dict) -> tuple[float, bool, int]:
+        return (
+            float(budget.get("budget_amount") or 0.0),
+            budget.get("entity_type") == "user",
+            int(budget.get("created_at") or 0),
+        )
+
+    selected = max(candidates, key=sort_key)
+    return selected, len(candidates)
+
+
+def _sum_usage_for_budget(usages: list[dict], budget: Optional[dict], window_bucket: str) -> float:
+    if not budget:
+        return 0.0
+
+    scope = _normalize_scope(budget.get("scope"))
+    entity_type = budget.get("entity_type")
+    entity_id = budget.get("entity_id")
+    window = budget.get("window")
+    total = 0.0
+
+    for usage in usages:
+        if usage.get("entity_type") != entity_type:
+            continue
+        if usage.get("entity_id") != entity_id:
+            continue
+        if usage.get("window") != window:
+            continue
+        if usage.get("window_bucket") != window_bucket:
+            continue
+        if _normalize_scope(usage.get("scope")) != scope:
+            continue
+        total += float(usage.get("cost") or 0.0)
+
+    return total
+
+
+def _build_budget_summary(budgets: list[dict], usages: list[dict]) -> list[dict]:
+    summary: list[dict] = []
+    now_bucket_cache = {window: _current_bucket(window) for window in _SUMMARY_WINDOWS}
+
+    for category in _SUMMARY_CATEGORIES:
+        for window in _SUMMARY_WINDOWS:
+            selected, matched_budget_count = _pick_relevant_budget(budgets, category, window)
+            if selected is None:
+                summary.append(
+                    {
+                        "type": category,
+                        "window": window,
+                        "budget_amount": 0.0,
+                        "used": 0.0,
+                        "usage_percent": 0,
+                        "matched_budget_count": 0,
+                        "source_entity_type": None,
+                        "source_entity_id": None,
+                        "source_scope": None,
+                    }
+                )
+                continue
+
+            used = _sum_usage_for_budget(usages, selected, now_bucket_cache[window])
+            budget_amount = float(selected.get("budget_amount") or 0.0)
+            usage_percent = int(min(100, round((used / budget_amount) * 100))) if budget_amount > 0 else 0
+            summary.append(
+                {
+                    "type": category,
+                    "window": window,
+                    "budget_amount": budget_amount,
+                    "used": used,
+                    "usage_percent": usage_percent,
+                    "matched_budget_count": matched_budget_count,
+                    "source_entity_type": selected.get("entity_type"),
+                    "source_entity_id": selected.get("entity_id"),
+                    "source_scope": selected.get("scope"),
+                }
+            )
+
+    return summary
 
 
 @router.get("/auth-config", summary="Get self-service auth mode")
@@ -212,6 +338,7 @@ async def self_service_session(request: Request, authorization: Optional[str] = 
     auth_source = "oidc" if get_oidc_owner_id(token) else "token-hash"
     return {
         "owner_id": owner_id,
+        "groups": get_oidc_groups(token),
         "auth_source": auth_source,
         "auth_mode": get_auth_mode_snapshot()["self_service"]["mode"],
     }
@@ -253,3 +380,31 @@ async def get_own_budget_usage(request: Request, authorization: Optional[str] = 
     token = _require_user_token(authorization, request)
     owner_id = _resolve_owner_id(token)
     return store.get_all_budget_usage(entity_type="user", entity_id=owner_id)
+
+
+@router.get("/budgets/context", response_model=BudgetContextRead, summary="Get own budgets with group-aware summary")
+async def get_budget_context(request: Request, authorization: Optional[str] = Header(default=None)):
+    token = _require_user_token(authorization, request)
+    owner_id = _resolve_owner_id(token)
+    groups = get_oidc_groups(token)
+
+    entities: list[tuple[str, str]] = [("user", owner_id)]
+    entities.extend(("group", group_id) for group_id in groups if group_id)
+
+    budgets: list[dict] = []
+    usage: list[dict] = []
+    for entity_type, entity_id in entities:
+        budgets.extend(store.list_budgets(entity_type=entity_type, entity_id=entity_id))
+        usage.extend(store.get_all_budget_usage(entity_type=entity_type, entity_id=entity_id))
+
+    return {
+        "owner_id": owner_id,
+        "groups": groups,
+        "daily_bucket": _current_bucket("daily"),
+        "monthly_bucket": _current_bucket("monthly"),
+        "budgets": budgets,
+        "usage": usage,
+        "summary": _build_budget_summary(budgets, usage),
+    }
+
+

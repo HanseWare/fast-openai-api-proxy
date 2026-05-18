@@ -52,6 +52,28 @@ class BudgetUsageRead(BaseModel):
     window_bucket: str
     cost: float
 
+
+class BudgetSummaryRead(BaseModel):
+    type: str
+    window: str
+    budget_amount: float
+    used: float
+    usage_percent: int
+    matched_budget_count: int
+    source_entity_type: str | None = None
+    source_entity_id: str | None = None
+    source_scope: str | None = None
+
+
+class BudgetContextRead(BaseModel):
+    owner_id: str
+    groups: list[str]
+    daily_bucket: str
+    monthly_bucket: str
+    budgets: list[BudgetRead]
+    usage: list[BudgetUsageRead]
+    summary: list[BudgetSummaryRead]
+
 class RequestLogRead(BaseModel):
     id: str
     api_key_id: Optional[str] = None

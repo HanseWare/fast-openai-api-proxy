@@ -130,6 +130,11 @@ Kosten werden aus der Provider-/Modellkonfiguration gelesen. Relevant sind pro M
 
 Diese Felder liegen in `provider_models` (`config_store.py`) und werden in `models_handler.py` in `model_data` übernommen.
 
+Frontend-Hinweis:
+
+- Für `llm` und `embedding` zeigt das Frontend `price_per_unit` als **Credits pro 1 Mio. Tokens** an.
+- Intern bleibt der gespeicherte Wert unverändert als Preis pro Token bestehen.
+
 Beispielhafte Modellwerte:
 
 ```json
@@ -349,7 +354,7 @@ store.list_budgets(entity_type="user", entity_id=owner_id)
 store.get_all_budget_usage(entity_type="user", entity_id=owner_id)
 ```
 
-Gruppenbudgets werden in der aktuellen Self-Service-Ansicht nicht aggregiert angezeigt, obwohl sie bei der Middleware-Entscheidung als Payer infrage kommen.
+Die gruppenbewusste Self-Service-Ansicht nutzt `/api/budgets/context`, um Budgetdaten für User + Gruppen zusammenzuführen und pro Budgettyp eine relevante Daily-/Monthly-Summary zu berechnen.
 
 ## Frontend-Integration
 
@@ -364,8 +369,19 @@ Self-Service:
 - `frontend/src/views/AccountView.vue`
 - ruft `/api/budgets` und `/api/budgets/usage` auf.
 - zeigt Budgetkarten und Fortschrittsbalken an.
+- nutzt zusätzlich `/api/budgets/context`, um oben pro Budgettyp (`tokens`, `audio`, `images`) die aktuell relevante Daily-/Monthly-Ansicht mit Gruppen-Kontext anzuzeigen.
+
+`/api/budgets/context` liefert:
+
+- `owner_id`
+- `groups`
+- `daily_bucket` und `monthly_bucket`
+- alle Budgets und Usage-Einträge für User + Gruppen
+- eine voraggregierte `summary` mit dem jeweils höchsten anwendbaren Budget pro Typ und Fenster
 
 Aktueller Hinweis: `AccountView.vue` sucht Usage mit `u.budget_id === budget.id`. Backend-Usage-Datensätze enthalten aber kein `budget_id`, sondern `entity_type`, `entity_id`, `scope`, `window`, `window_bucket` und `cost`. Dadurch kann die Self-Service-Anzeige aktuell Verbrauch als `0` darstellen, obwohl `budget_usage` Einträge enthält.
+
+Die neue Detailansicht verwendet die serverseitigen `daily_bucket`/`monthly_bucket`, um laufende Daily- und Monthly-Werte korrekt aus `budget_usage` zuzuordnen.
 
 ## Scope- und Modelltyp-Konventionen
 

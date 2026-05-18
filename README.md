@@ -153,6 +153,8 @@ Configuration:
 Provider API keys are resolved from env vars configured in model JSON (`api_key_variable`).
 Self-service API keys are generated as `foap-<sha256(uuid4)>` and retried until the stored secret hash is unique in the DB.
 
+In the frontend, `llm` and `embedding` model prices are shown as **Credits per 1M Tokens** while the backend continues to store the raw per-token value.
+
 ## Admin and Self-Service APIs
 
 When feature flags are enabled:
@@ -176,6 +178,9 @@ When feature flags are enabled:
   - `GET /api/health`
   - `GET /api/session`
   - `GET|POST|DELETE /api/keys...`
+  - `GET /api/budgets`
+  - `GET /api/budgets/usage`
+  - `GET /api/budgets/context`
   - `GET /api/usage/summary`
 
 ### Quota Overrides: List UX

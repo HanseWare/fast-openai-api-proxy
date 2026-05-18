@@ -84,6 +84,49 @@
         </div>
       </section>
 
+      <section class="glass-panel panel budget-summary-panel">
+        <div class="budget-summary-header">
+          <div>
+            <h2>Relevant Budgets</h2>
+            <p class="muted">Highest applicable budget per type and window, based on your account plus matching groups.</p>
+          </div>
+          <div v-if="budgetContextGroups.length" class="group-chip-row">
+            <span class="status-pill status-pill--neutral">Owner: {{ budgetContextOwner || 'unknown' }}</span>
+            <span v-for="group in budgetContextGroups" :key="group" class="status-pill status-pill--neutral">Group: {{ group }}</span>
+          </div>
+        </div>
+
+        <p v-if="!budgetSummaryGroups.length" class="muted">No applicable budgets found.</p>
+        <div v-else class="budget-summary-grid">
+          <article v-for="bucket in budgetSummaryGroups" :key="bucket.type" class="budget-summary-card">
+            <div class="quota-card-head budget-summary-card-head">
+              <div>
+                <h3>{{ formatBudgetTypeLabel(bucket.type) }}</h3>
+                <p class="muted">Credits displayed against the highest matching budget currently in effect.</p>
+              </div>
+            </div>
+
+            <div class="budget-summary-rows">
+              <div v-for="item in bucket.items" :key="`${item.type}-${item.window}`" class="budget-summary-row">
+                <div class="budget-summary-row-head">
+                  <span class="status-pill" :class="`status-pill--${budgetStatusTone(item)}`">{{ formatBudgetWindowLabel(item.window) }}</span>
+                  <span class="muted">{{ budgetStatusLabel(item) }} · {{ budgetSourceLabel(item) }}</span>
+                </div>
+                <div class="quota-progress">
+                  <div class="quota-progress-track" aria-hidden="true">
+                    <div class="quota-progress-fill" :style="{ width: `${item.usage_percent}%` }"></div>
+                  </div>
+                  <div class="quota-progress-labels">
+                    <span>{{ formatCredits(item.used, 2) }} / {{ formatCredits(item.budget_amount, 2) }} credits</span>
+                    <span>{{ item.usage_percent }}%</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
       <section class="grid-two">
         <div class="glass-panel panel">
           <h2>Create API key</h2>
@@ -123,7 +166,7 @@
                   <div class="quota-progress-fill" :style="{ width: `${item.usagePercent}%` }"></div>
                 </div>
                 <div class="quota-progress-labels">
-                  <span>{{ item.cost.toFixed(2) }} / {{ item.budget.budget_amount.toFixed(2) }} credits</span>
+                  <span>{{ formatCredits(item.cost, 2) }} / {{ formatCredits(item.budget.budget_amount, 2) }} credits</span>
                   <span>{{ item.usagePercent }}%</span>
                 </div>
               </div>
@@ -160,6 +203,7 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { fetchSelfServiceApi } from '../api'
 import { startOidcLogin } from '../services/oidc'
+import { formatBudgetScopeLabel, formatBudgetTypeLabel, formatBudgetWindowLabel, formatCredits, getCurrentBucket } from '../utils/budgetFormatting'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -178,6 +222,13 @@ const createdSecret = ref('')
 
 const budgets = ref([])
 const budgetUsage = ref([])
+const budgetContext = ref({
+  owner_id: '',
+  groups: [],
+  daily_bucket: '',
+  monthly_bucket: '',
+  summary: []
+})
 
 const isAuthenticated = computed(() => authStore.isAuthenticated)
 
@@ -220,11 +271,73 @@ const totalCost = computed(() => {
   return budgetUsage.value.reduce((sum, usage) => sum + usage.cost, 0)
 })
 
+const budgetContextOwner = computed(() => budgetContext.value?.owner_id || '')
+const budgetContextGroups = computed(() => budgetContext.value?.groups || [])
+
+const budgetSummaryGroups = computed(() => {
+  const grouped = new Map()
+  for (const item of budgetContext.value?.summary || []) {
+    if (!grouped.has(item.type)) {
+      grouped.set(item.type, [])
+    }
+    grouped.get(item.type).push(item)
+  }
+
+  const windowOrder = { daily: 0, monthly: 1 }
+  return Array.from(grouped.entries()).map(([type, items]) => ({
+    type,
+    items: items.slice().sort((left, right) => (windowOrder[left.window] ?? 99) - (windowOrder[right.window] ?? 99))
+  }))
+})
+
+function getBudgetWindowBucket(budget) {
+  if (budget.window === 'daily') {
+    return budgetContext.value?.daily_bucket || getCurrentBucket('daily')
+  }
+  return budgetContext.value?.monthly_bucket || getCurrentBucket('monthly')
+}
+
+function sumUsageForBudget(budget) {
+  const scope = budget.scope || ''
+  const bucket = getBudgetWindowBucket(budget)
+
+  return budgetUsage.value.reduce((sum, usage) => {
+    if (usage.entity_type !== budget.entity_type) return sum
+    if (usage.entity_id !== budget.entity_id) return sum
+    if (usage.window !== budget.window) return sum
+    if (usage.window_bucket !== bucket) return sum
+    if ((usage.scope || '') !== scope) return sum
+    return sum + usage.cost
+  }, 0)
+}
+
+function budgetStatusTone(item) {
+  if (!item.matched_budget_count || item.budget_amount <= 0) return 'neutral'
+  if (item.usage_percent >= 100) return 'danger'
+  if (item.usage_percent >= 80) return 'warning'
+  return 'success'
+}
+
+function budgetStatusLabel(item) {
+  if (!item.matched_budget_count || item.budget_amount <= 0) return 'No budget configured'
+  if (item.usage_percent >= 100) return 'Exhausted'
+  if (item.usage_percent >= 80) return 'Near limit'
+  return 'Healthy'
+}
+
+function budgetSourceLabel(item) {
+  if (!item.matched_budget_count || !item.source_entity_type || !item.source_entity_id) {
+    return 'No matching budget'
+  }
+
+  const source = `${item.source_entity_type}:${item.source_entity_id}`
+  const scope = ` · ${item.source_scope ? formatBudgetScopeLabel(item.source_scope) : 'Global'}`
+  return `${source}${scope}`
+}
+
 const decoratedBudgets = computed(() => {
   return budgets.value.map(budget => {
-    // Find matching usage
-    const usage = budgetUsage.value.find(u => u.budget_id === budget.id)
-    const cost = usage ? usage.cost : 0.0
+    const cost = sumUsageForBudget(budget)
     const limit = budget.budget_amount
 
     const usagePercent = limit > 0 ? Math.min(100, Math.round((cost / limit) * 100)) : 0
@@ -257,6 +370,7 @@ function handleLogout() {
   keys.value = []
   budgets.value = []
   budgetUsage.value = []
+  budgetContext.value = { owner_id: '', groups: [], daily_bucket: '', monthly_bucket: '', summary: [] }
   router.replace({ path: '/' })
 }
 
@@ -305,6 +419,7 @@ async function refreshAll() {
   loading.value = true
   error.value = ''
   try {
+    budgetContext.value = await fetchSelfServiceApi('/budgets/context')
     keys.value = await fetchSelfServiceApi('/keys')
     budgets.value = await fetchSelfServiceApi('/budgets')
     budgetUsage.value = await fetchSelfServiceApi('/budgets/usage')
@@ -428,6 +543,15 @@ onMounted(() => {
 .input-group label { font-size: 0.9rem; color: var(--color-text-secondary); }
 
 .toolbar-actions { display: flex; gap: 0.75rem; }
+.budget-summary-panel { display: flex; flex-direction: column; gap: 1rem; }
+.budget-summary-header { display: flex; justify-content: space-between; gap: 1.5rem; align-items: flex-start; }
+.group-chip-row { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: flex-end; }
+.budget-summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+.budget-summary-card { border: 1px solid var(--glass-border); border-radius: 12px; padding: 1rem; background: rgba(11, 16, 33, 0.45); display: flex; flex-direction: column; gap: 0.9rem; }
+.budget-summary-card-head { margin-bottom: 0; }
+.budget-summary-rows { display: flex; flex-direction: column; gap: 0.75rem; }
+.budget-summary-row { display: flex; flex-direction: column; gap: 0.45rem; padding-top: 0.1rem; }
+.budget-summary-row-head { display: flex; justify-content: space-between; gap: 1rem; align-items: center; }
 .grid-two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.5rem; }
 
 .quota-list, .key-list { display: flex; flex-direction: column; gap: 0.75rem; }
@@ -459,6 +583,8 @@ code { color: var(--color-teal-cyan); }
 
 @media (max-width: 900px) {
   .hero, .quota-card-head, .key-row { flex-direction: column; }
+  .budget-summary-header, .budget-summary-row-head { flex-direction: column; align-items: flex-start; }
+  .budget-summary-grid { grid-template-columns: 1fr; }
   .grid-two { grid-template-columns: 1fr; }
   .hero-stats { width: 100%; flex-direction: column; }
 }

@@ -1,5 +1,7 @@
 import os
 import sys
+import time
+from datetime import datetime
 
 APP_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "app"))
 CONFIG_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "configs"))
@@ -22,6 +24,9 @@ from routers.self_service import router as self_service_router
 
 def _reset_store_tables() -> None:
     with store._connect() as conn:
+        conn.execute("DELETE FROM budget_usage")
+        conn.execute("DELETE FROM budgets")
+        conn.execute("DELETE FROM request_logs")
         conn.execute("DELETE FROM api_key_usage")
         conn.execute("DELETE FROM api_key_quotas")
         conn.execute("DELETE FROM protected_endpoints")
@@ -141,6 +146,55 @@ def test_self_service_session_exposes_oidc_source(monkeypatch):
     body = response.json()
     assert body["owner_id"] == "oidc:user-42"
     assert body["auth_source"] == "oidc"
+
+
+def test_self_service_session_and_budget_context_include_oidc_groups(monkeypatch):
+    _reset_store_tables()
+    monkeypatch.setenv("FOAP_ENABLE_OIDC_AUTH", "1")
+
+    app = FastAPI()
+    app.include_router(self_service_router)
+    client = TestClient(app)
+
+    monkeypatch.setattr("routers.self_service.get_oidc_owner_id", lambda token: "oidc:user-42")
+    monkeypatch.setattr("routers.self_service.get_oidc_groups", lambda token: ["team-a", "team-b"])
+
+    now = int(time.time())
+    daily_bucket = datetime.fromtimestamp(now).strftime("%Y-%m-%d")
+    monthly_bucket = datetime.fromtimestamp(now).strftime("%Y-%m")
+
+    store.create_budget(entity_type="user", entity_id="oidc:user-42", window="daily", budget_amount=100.0, scope="llm")
+    store.create_budget(entity_type="group", entity_id="team-a", window="daily", budget_amount=250.0, scope="embedding")
+    store.create_budget(entity_type="group", entity_id="team-b", window="monthly", budget_amount=300.0, scope=None)
+    store.create_budget(entity_type="group", entity_id="team-b", window="monthly", budget_amount=400.0, scope="image-gen")
+
+    store.add_budget_usage("user", "oidc:user-42", "daily", daily_bucket, 90.0, "llm")
+    store.add_budget_usage("group", "team-a", "daily", daily_bucket, 25.0, "embedding")
+    store.add_budget_usage("group", "team-b", "monthly", monthly_bucket, 50.0, None)
+    store.add_budget_usage("group", "team-b", "monthly", monthly_bucket, 75.0, "image-gen")
+
+    session = client.get("/api/session", headers={"Authorization": "Bearer oidc-token"})
+    assert session.status_code == 200
+    assert session.json()["groups"] == ["team-a", "team-b"]
+
+    context = client.get("/api/budgets/context", headers={"Authorization": "Bearer oidc-token"})
+    assert context.status_code == 200
+    body = context.json()
+    assert body["owner_id"] == "oidc:user-42"
+    assert body["groups"] == ["team-a", "team-b"]
+    assert len(body["budgets"]) == 4
+    assert len(body["usage"]) == 4
+
+    summary = {(item["type"], item["window"]): item for item in body["summary"]}
+    assert summary[("tokens", "daily")]["budget_amount"] == 250.0
+    assert summary[("tokens", "daily")]["used"] == 25.0
+    assert summary[("tokens", "daily")]["matched_budget_count"] == 2
+    assert summary[("tokens", "monthly")]["budget_amount"] == 300.0
+    assert summary[("tokens", "monthly")]["used"] == 50.0
+    assert summary[("images", "monthly")]["budget_amount"] == 400.0
+    assert summary[("images", "monthly")]["used"] == 75.0
+    assert summary[("audio", "monthly")]["budget_amount"] == 300.0
+    assert summary[("audio", "monthly")]["used"] == 50.0
 
 
 def test_auth_configuration_errors_for_oidc_only_without_oidc(monkeypatch):
