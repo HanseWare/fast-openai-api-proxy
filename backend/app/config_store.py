@@ -120,7 +120,7 @@ class ConfigStore:
     def sync_provider_ratelimits(self, provider_name: str, limits: dict[str, Any]) -> dict:
         now = int(time.time())
         existing = self.get_provider_ratelimits(provider_name) or {}
-        fields = ("limit_second", "remaining_second","limit_minute", "remaining_minute", "limit_hour", "remaining_hour", "limit_day", "remaining_day", "limit_month", "remaining_month", "ratelimit_limit", "ratelimit_remaining", "ratelimit_reset", "ratelimit_retry_after", "current_limiting_window", "updated_at")
+        fields = ("limit_second", "remaining_second","limit_minute", "remaining_minute", "limit_hour", "remaining_hour", "limit_day", "remaining_day", "limit_month", "remaining_month", "ratelimit_limit", "ratelimit_remaining", "ratelimit_reset", "ratelimit_retry_after", "updated_at")
         merged = {
             "provider_name": provider_name,
         }
@@ -129,6 +129,8 @@ class ConfigStore:
             merged[field] = existing.get(field)
             if field in limits and limits[field] is not None:
                 merged[field] = int(limits[field])
+        if limits.get("current_limiting_window") is not None:
+            merged["current_limiting_window"] = limits["current_limiting_window"]
 
         with self._lock:
             with self._connect() as conn:

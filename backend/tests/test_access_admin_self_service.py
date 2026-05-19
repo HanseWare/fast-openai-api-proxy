@@ -2,7 +2,8 @@ import os
 import sys
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -132,6 +133,48 @@ def test_access_key_lifecycle_and_budget_api():
         headers={"Authorization": "Bearer user-seed-token"}
     )
     assert len(own_budgets_after.json()) == 0
+
+
+def test_access_control_replays_request_body_for_downstream_handlers():
+    _reset_access_store()
+
+    app = FastAPI()
+    app.add_middleware(AccessControlMiddleware)  # type: ignore[arg-type]
+
+    @app.post("/echo")
+    async def echo(request: Request):
+        return await request.json()
+
+    client = TestClient(app)
+
+    response = client.post("/echo", json={"model": "gpt-4o", "value": 123})
+
+    assert response.status_code == 200
+    assert response.json() == {"model": "gpt-4o", "value": 123}
+
+
+def test_access_control_body_replay_supports_streaming_response():
+    _reset_access_store()
+
+    app = FastAPI()
+    app.add_middleware(AccessControlMiddleware)  # type: ignore[arg-type]
+
+    @app.post("/v1/chat/completions")
+    async def stream_echo(request: Request):
+        payload = await request.json()
+
+        async def events():
+            yield f"data: {payload['model']}\n\n".encode()
+
+        return StreamingResponse(events(), media_type="text/event-stream")
+
+    client = TestClient(app)
+
+    response = client.post("/v1/chat/completions", json={"model": "gpt-4o", "stream": True})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert "data: gpt-4o" in response.text
 
 
 def test_self_service_oidc_callback_reads_session_cookie_and_sets_auth_cookie(monkeypatch):

@@ -1,7 +1,7 @@
 from typing import Optional
 from fastapi import Request
 from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from access_store import store
 from auth import extract_bearer_token, get_api_key_context, get_oidc_owner_id, get_oidc_groups
@@ -25,27 +25,60 @@ def _attach_trace(response: JSONResponse, trace: dict, emit_trace: bool) -> JSON
         response.headers[TRACE_HEADER_NAME] = _trace_header_value(trace)
     return response
 
-class AccessControlMiddleware(BaseHTTPMiddleware):
+class AccessControlMiddleware:
     """Optional access-control guard for protected endpoints and budgets."""
 
-    async def dispatch(self, request: Request, call_next):
-        path = request.url.path
-        method = request.method.upper()
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        request = Request(scope)
+        path = scope.get("path", request.url.path)
+        method = scope.get("method", request.method).upper()
         emit_trace = _should_emit_trace(request)
         model = None
+        body = b""
+        buffered_disconnect: Optional[Message] = None
 
         if method != "GET":
+            while True:
+                message = await receive()
+                if message["type"] == "http.request":
+                    body += message.get("body", b"")
+                    if not message.get("more_body", False):
+                        break
+                elif message["type"] == "http.disconnect":
+                    buffered_disconnect = message
+                    break
+                else:
+                    break
+
             try:
-                body = await request.body()
                 if body:
                     import json
                     payload = json.loads(body)
                     model = payload.get("model") if isinstance(payload, dict) else None
-                # Restore the body for downstream consumers
-                async def receive(): return {"type": "http.request", "body": body}
-                request._receive = receive
             except Exception:
                 model = None
+
+        body_sent = method == "GET"
+        disconnect_sent = buffered_disconnect is None
+
+        async def replay_receive() -> Message:
+            nonlocal body_sent, disconnect_sent
+            if not body_sent:
+                body_sent = True
+                return {"type": "http.request", "body": body, "more_body": False}
+            if buffered_disconnect is not None and not disconnect_sent:
+                disconnect_sent = True
+                return buffered_disconnect
+            return await receive()
+
+        downstream_receive = receive if method == "GET" else replay_receive
 
         is_protected = store.is_endpoint_protected(path=path, method=method, model=model)
 
@@ -67,37 +100,35 @@ class AccessControlMiddleware(BaseHTTPMiddleware):
         if not entities and is_protected:
             trace = {"source": "none", "allowed": False, "api_path": path, "model": model}
             response = JSONResponse(status_code=401, content={"detail": "Unauthorized"})
-            return _attach_trace(response, trace, emit_trace)
+            await _attach_trace(response, trace, emit_trace)(scope, downstream_receive, send)
+            return
 
-        request.state.api_key = key_context
-        request.state.oidc_owner_id = oidc_owner_id
-        request.state.entities = entities
-        request.state.model_data = None
-        request.state.payer_entity = None
-        request.state.reserved_credits = 0.0
+        state = scope.setdefault("state", {})
+        state["api_key"] = key_context
+        state["oidc_owner_id"] = oidc_owner_id
+        state["entities"] = entities
+        state["model_data"] = None
+        state["payer_entity"] = None
+        state["reserved_credits"] = 0.0
 
-        if not path.startswith("/v1/"):
-            return await call_next(request)
-
-        if model:
+        if path.startswith("/v1/") and model:
             try:
                 model_data = models_handler.get_model_data(model, path)
                 min_credits = model_data.get("min_credits_per_request", 0.0)
                 model_type = model_data.get("type", "llm")
-                request.state.model_data = model_data
-                
+                state["model_data"] = model_data
+
                 if min_credits > 0 and entities:
                     allowed, payer_entity = await budget_service.reserve_budget(entities, model_type, min_credits)
                     trace = {"source": "budget", "allowed": allowed, "api_path": path, "model": model, "owner": payer_entity[1] if payer_entity else "none"}
                     if not allowed:
                         response = JSONResponse(status_code=429, content={"detail": "Budget exhausted"})
-                        return _attach_trace(response, trace, emit_trace)
-                    
-                    request.state.payer_entity = payer_entity
-                    request.state.reserved_credits = min_credits
+                        await _attach_trace(response, trace, emit_trace)(scope, downstream_receive, send)
+                        return
+
+                    state["payer_entity"] = payer_entity
+                    state["reserved_credits"] = min_credits
             except Exception:
                 pass
 
-        response = await call_next(request)
-
-        return response
+        await self.app(scope, downstream_receive, send)
